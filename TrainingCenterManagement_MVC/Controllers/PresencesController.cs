@@ -24,6 +24,37 @@ namespace TrainingCenterManagement_MVC.Controllers
             _context = context;
         }
 
+        // GET: Presences — the trainer's "الحضور" sidebar entry point.
+        // Previously missing entirely, so the sidebar link 404'd.
+        [Authorize(Roles = "Trainer")]
+        public async Task<IActionResult> Index()
+        {
+            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            var trainer = await _context.Trainers.FirstOrDefaultAsync(t => t.UserId == userId);
+            if (trainer == null) return Forbid();
+
+            var lectures = await _context.Lectures
+                .Where(l => !l.IsDeleted && l.Course.CourseTrainers.Any(ct => ct.TrainerId == trainer.TrainerId))
+                .Include(l => l.Course)
+                .Include(l => l.Presences)
+                .OrderByDescending(l => l.LectureDate)
+                .ToListAsync();
+
+            var rows = lectures.Select(l => new PresenceOverviewRow
+            {
+                LectureId = l.LectureId,
+                LectureTitle = l.Title,
+                CourseName = l.Course.CourseName,
+                LectureDate = l.LectureDate,
+                IsUpcoming = l.LectureDate > DateTime.UtcNow,
+                IsMarked = l.Presences.Any(),
+                PresentCount = l.Presences.Count(p => p.IsPresent),
+                TotalMarked = l.Presences.Count
+            }).ToList();
+
+            return View(rows);
+        }
+
         public async Task<IActionResult> MarkAttendance(Guid lectureId)
         {
             var lecture = await _context.Lectures

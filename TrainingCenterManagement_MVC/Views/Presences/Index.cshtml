@@ -1,0 +1,108 @@
+@model List<TrainingCenterManagement_MVC.ViewModels.PresenceOverviewRow>
+@{
+    ViewData["Title"] = "الحضور";
+}
+
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+
+<style>
+    :root {
+        --pv-pr:#0d80f2; --pv-success:#10b981; --pv-danger:#ef4444; --pv-warning:#f59e0b;
+        --pv-body:#f1f5f9; --pv-card:#fff; --pv-t1:#0f172a; --pv-t2:#475569; --pv-t3:#94a3b8;
+        --pv-border:#e2e8f0; --pv-radius:14px; --pv-shadow:0 4px 20px rgba(0,0,0,.07);
+    }
+    .pv-page { background:var(--pv-body); direction:rtl; font-family:'Segoe UI',sans-serif; padding:28px 32px; min-height:100vh; }
+    .pv-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:22px; flex-wrap:wrap; gap:12px; }
+    .pv-header h1 { font-size:1.4rem; font-weight:800; color:var(--pv-t1); margin:0; display:flex; align-items:center; gap:10px; }
+    .pv-header h1 i { color:var(--pv-pr); }
+    .pv-header p { margin:4px 0 0; color:var(--pv-t2); font-size:.85rem; }
+
+    .pv-table-wrap { background:var(--pv-card); border-radius:var(--pv-radius); border:1px solid var(--pv-border); box-shadow:var(--pv-shadow); overflow:hidden; }
+    .pv-row { display:flex; align-items:center; justify-content:space-between; gap:14px; padding:16px 22px; border-bottom:1px solid #f1f5f9; flex-wrap:wrap; }
+    .pv-row:last-child { border-bottom:none; }
+    .pv-info { display:flex; flex-direction:column; gap:3px; }
+    .pv-title { font-weight:700; color:var(--pv-t1); font-size:.95rem; }
+    .pv-sub { font-size:.8rem; color:var(--pv-t3); display:flex; align-items:center; gap:6px; }
+
+    .pv-chip { padding:4px 12px; border-radius:20px; font-size:.76rem; font-weight:700; display:inline-flex; align-items:center; gap:5px; white-space:nowrap; }
+    .pv-chip-upcoming { background:#e0f2fe; color:#0369a1; }
+    .pv-chip-unmarked { background:#fef3c7; color:#92400e; }
+    .pv-chip-marked   { background:#d1fae5; color:#065f46; }
+
+    .pv-actions { display:flex; align-items:center; gap:10px; }
+    .pv-btn { display:inline-flex; align-items:center; gap:6px; padding:8px 16px; border-radius:8px; font-size:.82rem; font-weight:700; text-decoration:none; transition:.2s; }
+    .pv-btn-primary { background:var(--pv-pr); color:#fff; }
+    .pv-btn-primary:hover { opacity:.9; color:#fff; }
+    .pv-btn-secondary { background:#f1f5f9; color:var(--pv-t2); border:1px solid var(--pv-border); }
+    .pv-btn-secondary:hover { background:#e2e8f0; color:var(--pv-t2); }
+
+    .pv-empty { text-align:center; padding:60px 20px; color:var(--pv-t3); }
+    .pv-empty i { font-size:2.5rem; margin-bottom:12px; display:block; }
+
+    @@media (max-width:640px) {
+        .pv-page { padding:18px 14px; }
+        .pv-row { flex-direction:column; align-items:flex-start; }
+    }
+</style>
+
+<div class="dashboard-wrapper" style="display:flex;direction:rtl;min-height:100vh">
+@await Html.PartialAsync("_TrainerSidebar")
+<main class="pv-page" style="flex:1;order:2">
+
+    <div class="pv-header">
+        <div>
+            <h1><i class="fas fa-clipboard-check"></i> الحضور</h1>
+            <p>سجّل حضور المتدربين لكل محاضرة من محاضرات دوراتك</p>
+        </div>
+    </div>
+
+    @if (!Model.Any())
+    {
+        <div class="pv-table-wrap">
+            <div class="pv-empty">
+                <i class="fas fa-calendar-times"></i>
+                <p>لا توجد محاضرات في دوراتك بعد</p>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="pv-table-wrap">
+            @foreach (var l in Model)
+            {
+                <div class="pv-row">
+                    <div class="pv-info">
+                        <div class="pv-title">@l.LectureTitle</div>
+                        <div class="pv-sub">
+                            <i class="fas fa-book-open"></i> @l.CourseName
+                            <span>•</span>
+                            <i class="fas fa-calendar-alt"></i> @l.LectureDate.ToString("dd/MM/yyyy — hh:mm tt")
+                        </div>
+                    </div>
+                    <div class="pv-actions">
+                        @if (l.IsUpcoming)
+                        {
+                            <span class="pv-chip pv-chip-upcoming"><i class="fas fa-clock"></i> لم تبدأ بعد</span>
+                        }
+                        else if (l.IsMarked)
+                        {
+                            <span class="pv-chip pv-chip-marked"><i class="fas fa-check-circle"></i> @l.PresentCount من @l.TotalMarked حاضر</span>
+                            <a asp-controller="Lectures" asp-action="MarkAttendance" asp-route-id="@l.LectureId" class="pv-btn pv-btn-secondary">
+                                <i class="fas fa-pen"></i> تعديل
+                            </a>
+                        }
+                        else
+                        {
+                            <span class="pv-chip pv-chip-unmarked"><i class="fas fa-exclamation-triangle"></i> لم يُسجَّل الحضور</span>
+                            <a asp-controller="Lectures" asp-action="MarkAttendance" asp-route-id="@l.LectureId" class="pv-btn pv-btn-primary">
+                                <i class="fas fa-clipboard-check"></i> تسجيل الحضور
+                            </a>
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+    }
+
+</main>
+</div>
