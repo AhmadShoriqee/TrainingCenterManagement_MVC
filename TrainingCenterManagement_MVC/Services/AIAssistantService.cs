@@ -106,8 +106,12 @@ namespace TrainingCenterManagement_MVC.Services
                 var openAiKey    = ResolveApiKey(cfg.OpenAIApiKey,    _openAiApiKey);
                 var groqKey      = ResolveApiKey(cfg.GroqApiKey,      _groqApiKey);
 
-                bool needsData = IsDataQuestion(question);
-
+                // Always give the model tool access — a keyword pre-filter used to decide
+                // this, but Arabic's rich morphology means "any" real question could miss
+                // every keyword (e.g. "الطلاب" vs the listed "متدرب") and silently fall back
+                // to a toolless, data-blind answer. Function-calling models already decide
+                // for themselves whether a tool call is needed for a given turn — that's the
+                // whole point of tool calling — so the pre-filter only ever hurt accuracy.
                 if (cfg.Provider == AIProviderType.Ollama)
                 {
                     aiResponse    = await CallOllamaWithGuidedToolsAsync(
@@ -117,33 +121,22 @@ namespace TrainingCenterManagement_MVC.Services
                 }
                 else if (cfg.Provider == AIProviderType.Groq)
                 {
-                    aiResponse = needsData
-                        ? await CallOpenAIWithToolsAsync(enrichedPrompt, history, question,
-                              groqKey, cfg.GroqModel, cfg.MaxTokensPerResponse, userId, role,
-                              GroqBaseUrl)
-                        : await CallOpenAIAsync(enrichedPrompt, history, question,
-                              groqKey, cfg.GroqModel, cfg.MaxTokensPerResponse,
-                              GroqBaseUrl);
+                    aiResponse = await CallOpenAIWithToolsAsync(enrichedPrompt, history, question,
+                        groqKey, cfg.GroqModel, cfg.MaxTokensPerResponse, userId, role,
+                        GroqBaseUrl);
                     providerLabel = $"Groq ({cfg.GroqModel})";
                 }
                 else if (cfg.Provider == AIProviderType.OpenAI)
                 {
-                    aiResponse = needsData
-                        ? await CallOpenAIWithToolsAsync(enrichedPrompt, history, question,
-                              openAiKey, cfg.OpenAIModel, cfg.MaxTokensPerResponse, userId, role,
-                              OpenAIBaseUrl)
-                        : await CallOpenAIAsync(enrichedPrompt, history, question,
-                              openAiKey, cfg.OpenAIModel, cfg.MaxTokensPerResponse,
-                              OpenAIBaseUrl);
+                    aiResponse = await CallOpenAIWithToolsAsync(enrichedPrompt, history, question,
+                        openAiKey, cfg.OpenAIModel, cfg.MaxTokensPerResponse, userId, role,
+                        OpenAIBaseUrl);
                     providerLabel = $"OpenAI ({cfg.OpenAIModel})";
                 }
                 else
                 {
-                    aiResponse = needsData
-                        ? await CallAnthropicWithToolsAsync(enrichedPrompt, history, question,
-                              anthropicKey, cfg.MaxTokensPerResponse, userId, role)
-                        : await CallAnthropicAsync(enrichedPrompt, history, question,
-                              anthropicKey, cfg.MaxTokensPerResponse);
+                    aiResponse = await CallAnthropicWithToolsAsync(enrichedPrompt, history, question,
+                        anthropicKey, cfg.MaxTokensPerResponse, userId, role);
                     providerLabel = "Claude (Anthropic)";
                 }
 
@@ -657,26 +650,6 @@ namespace TrainingCenterManagement_MVC.Services
         // Returns true when the question likely needs database data.
         // Used only to decide whether to activate Tool Use for Claude/OpenAI
         // (the DB context is always injected regardless).
-        private static bool IsDataQuestion(string q)
-            => q.Contains("دور")   || q.Contains("كورس")  || q.Contains("حضو")    ||
-               q.Contains("غياب")  || q.Contains("امتحا") || q.Contains("نتيج")   ||
-               q.Contains("درجة")  || q.Contains("دفع")   || q.Contains("فاتور")  ||
-               q.Contains("مبلغ")  || q.Contains("جلسة")  || q.Contains("مباشر")  ||
-               q.Contains("شهادة") || q.Contains("إحصا")  || q.Contains("إيراد")  ||
-               q.Contains("عدد ")  || q.Contains("كم ")   || q.Contains("ذكور")   ||
-               q.Contains("إناث")  || q.Contains("أنثى")  || q.Contains("أنصح")   ||
-               q.Contains("انصح")  || q.Contains("اقترح") || q.Contains("مستوا")  ||
-               q.Contains("متدرب") || q.Contains("مدرب")  || q.Contains("مركز")   ||
-               q.Contains("معدل")  || q.Contains("تقدم")  || q.Contains("أداء")   ||
-               q.Contains("أفضل")  || q.Contains("أهم")   || q.Contains("مقارن")  ||
-               q.Contains("ماذا")  || q.Contains("ما ال") || q.Contains("كيف ")   ||
-               q.Contains("هل ")   || q.Contains("متى")   || q.Contains("بيان")   ||
-               q.Contains("تقرير") || q.Contains("ملخص")  || q.Contains("مالي")   ||
-               q.Contains("course", StringComparison.OrdinalIgnoreCase) ||
-               q.Contains("exam",   StringComparison.OrdinalIgnoreCase) ||
-               q.Contains("pay",    StringComparison.OrdinalIgnoreCase) ||
-               q.Contains("stat",   StringComparison.OrdinalIgnoreCase);
-
         // ─────────────────────────────────────────────────────────────────────
         //  System prompt enriched with knowledge-base entries
         // ─────────────────────────────────────────────────────────────────────
@@ -1011,14 +984,76 @@ namespace TrainingCenterManagement_MVC.Services
             {
                 tools.Add(Tool("get_center_statistics",
                     "إحصائيات المركز الشاملة: إجمالي المتدربين (ذكور+إناث)، المدربين، الدورات النشطة، الامتحانات، الشهادات، الجلسات القادمة، إجمالي الإيرادات، مدفوعات اليوم، طلبات دفع معلقة، عدد أسئلة AI اليوم"));
+
                 tools.Add(Tool("get_course_details",
-                    "تفاصيل كل دورة نشطة: اسم الدورة، رقم الدفعة، عدد المتدربين المسجلين، عدد المدربين المُعيَّنين وأسماؤهم، السعر والعملة"));
+                    "تفاصيل الدورات: الاسم، رقم الدفعة، عدد المتدربين المسجلين، المدربون المُعيَّنون وأسماؤهم، السعر والعملة. مرِّر course_name فقط إذا ذكر السؤال دورة محددة بالاسم.",
+                    new Dictionary<string, object>
+                    {
+                        ["course_name"] = StrProp("جزء من اسم الدورة للبحث عنه — اتركه فارغاً لعرض كل الدورات النشطة")
+                    }));
+
                 tools.Add(Tool("get_payment_breakdown",
-                    "تحليل المدفوعات: الإجمالي الكلي، عدد الدفعات، مدفوعات اليوم، طلبات قيد المراجعة، التوزيع بالعملات"));
-                tools.Add(Tool("get_trainees_with_payments",
-                    "أسماء جميع المتدربين الذين لديهم دفعات مالية أو طلبات دفع، بغض النظر عن حالة الطلب (مقبولة/مرفوضة/قيد المراجعة)، مع إجمالي المدفوعات المؤكدة لكل متدرب وحالة طلبات الدفع الخاصة به"));
+                    "تحليل إجمالي للمدفوعات المؤكدة خلال فترة زمنية: الإجمالي، عدد الدفعات، التوزيع بالعملة، طلبات قيد المراجعة. استخدمها للأسئلة الإجمالية/الإحصائية عن المدفوعات وليس لسؤال عن أشخاص محدَّدين.",
+                    new Dictionary<string, object>
+                    {
+                        ["period"] = EnumProp("الفترة الزمنية المطلوبة من سياق السؤال (اليوم/هذا الأسبوع/هذا الشهر/هذه السنة/الكل)", PeriodValues)
+                    }));
+
+                tools.Add(Tool("search_trainees",
+                    "بحث مرن عن المتدربين حسب أي مجموعة من الشروط المذكورة في السؤال: الاسم، اسم الدورة المسجَّل بها، حالة الدفع، أو نسبة الحضور. هذه هي الأداة الصحيحة لأي سؤال يطلب أسماء/قائمة متدربين بشرط معيَّن (مثل: من لديه دفعات بغض النظر عن الحالة، من مسجَّل في دورة كذا، من حضوره أقل من نسبة معيَّنة). املأ فقط المعاملات التي ذكرها السؤال فعلياً واترك الباقي فارغاً.",
+                    new Dictionary<string, object>
+                    {
+                        ["name"]        = StrProp("جزء من اسم المتدرب أو بريده الإلكتروني (اختياري)"),
+                        ["course_name"] = StrProp("جزء من اسم الدورة التي يجب أن يكون المتدرب مسجَّلاً بها (اختياري)"),
+                        ["payment_status"] = EnumProp(
+                            "حالة الدفع المطلوبة إن ذُكرت في السؤال: any = لديه أي دفعة أو طلب دفع بغض النظر عن حالته، has_payment = لديه دفعة مؤكدة فعلياً، pending/approved/rejected = طلب دفع بحالة محددة، none = لا يوجد لديه أي دفعة إطلاقاً. اتركه فارغاً إن لم يُذكر شرط دفع.",
+                            new[] { "any", "has_payment", "pending", "approved", "rejected", "none" }),
+                        ["min_attendance"] = NumProp("أقل نسبة حضور مقبولة من 0 إلى 100 (اختياري، فقط إن ذكر السؤال نسبة حضور)"),
+                        ["max_attendance"] = NumProp("أعلى نسبة حضور مقبولة من 0 إلى 100 (اختياري)")
+                    }));
+
+                tools.Add(Tool("search_payments",
+                    "بحث مرن في سجلات المدفوعات المؤكدة الفردية حسب اسم المتدرب، اسم الدورة، مبلغ، أو فترة زمنية. استخدمها عندما يطلب السؤال قائمة/تفاصيل دفعات فردية وليس مجرد إجمالي.",
+                    new Dictionary<string, object>
+                    {
+                        ["trainee_name"] = StrProp("جزء من اسم المتدرب (اختياري)"),
+                        ["course_name"]  = StrProp("جزء من اسم الدورة (اختياري)"),
+                        ["min_amount"]   = NumProp("أقل مبلغ للدفعة (اختياري)"),
+                        ["max_amount"]   = NumProp("أعلى مبلغ للدفعة (اختياري)"),
+                        ["period"]       = EnumProp("الفترة الزمنية المطلوبة من سياق السؤال", PeriodValues)
+                    }));
+
                 tools.Add(Tool("get_exam_statistics",
                     "إحصائيات الامتحانات: عدد الامتحانات المُعدَّة، إجمالي المحاولات، عدد الناجحين والراسبين مع النسب المئوية، متوسط الدرجات"));
+
+                tools.Add(Tool("search_trainers",
+                    "بحث مرن عن المدربين حسب الاسم أو التخصص أو الحد الأدنى لسنوات الخبرة.",
+                    new Dictionary<string, object>
+                    {
+                        ["name"]           = StrProp("جزء من اسم المدرب أو بريده الإلكتروني (اختياري)"),
+                        ["specialty"]      = StrProp("جزء من التخصص، مثل: برمجة، تصميم، شبكات (اختياري)"),
+                        ["min_experience"] = NumProp("أقل عدد سنوات خبرة مقبول (اختياري)")
+                    }));
+
+                tools.Add(Tool("search_exam_attempts",
+                    "بحث مرن في محاولات الامتحانات المُسلَّمة فعلياً: بحسب اسم الامتحان أو الدورة، اسم المتدرب، النجاح/الرسوب، أو نطاق الدرجة. استخدمها لأي سؤال عن نتائج امتحان محدد أو من نجح/رسب.",
+                    new Dictionary<string, object>
+                    {
+                        ["exam_or_course_name"] = StrProp("جزء من اسم الامتحان أو اسم الدورة (اختياري)"),
+                        ["trainee_name"]        = StrProp("جزء من اسم المتدرب (اختياري)"),
+                        ["passed"]              = BoolProp("true لعرض الناجحين فقط، false لعرض الراسبين فقط — اتركه فارغاً لعرض الكل"),
+                        ["min_score"]           = NumProp("أقل نسبة مئوية للدرجة من 0 إلى 100 (اختياري)"),
+                        ["max_score"]           = NumProp("أعلى نسبة مئوية للدرجة من 0 إلى 100 (اختياري)")
+                    }));
+
+                tools.Add(Tool("search_certificates",
+                    "بحث مرن في الشهادات الصادرة فعلياً: بحسب اسم المتدرب، اسم الدورة، أو الحد الأدنى للمعدل.",
+                    new Dictionary<string, object>
+                    {
+                        ["trainee_name"] = StrProp("جزء من اسم المتدرب (اختياري)"),
+                        ["course_name"]  = StrProp("جزء من اسم الدورة (اختياري)"),
+                        ["min_average"]  = NumProp("أقل معدل مقبول (اختياري)")
+                    }));
             }
 
             if (role == "Trainee")
@@ -1057,16 +1092,117 @@ namespace TrainingCenterManagement_MVC.Services
             input_schema = new { type = "object", properties = new { } }
         };
 
+        // Parameterized tool: gives the LLM real fields to fill in from the
+        // question's wording/context, instead of always running the same
+        // fixed query regardless of what was actually asked.
+        private static object Tool(string name, string description, Dictionary<string, object> properties, string[]? required = null)
+        {
+            var schema = new Dictionary<string, object>
+            {
+                ["type"] = "object",
+                ["properties"] = properties
+            };
+            if (required is { Length: > 0 })
+                schema["required"] = required;
+
+            return new { name, description, input_schema = schema };
+        }
+
+        private static object StrProp(string description) => new { type = "string", description };
+        private static object NumProp(string description) => new { type = "number", description };
+        private static object EnumProp(string description, string[] values) => new { type = "string", description, @enum = values };
+        private static object BoolProp(string description) => new { type = "boolean", description };
+
+        private static readonly string[] PeriodValues = { "today", "this_week", "this_month", "this_year", "all" };
+
+        private static string? GetStr(JsonElement args, string prop)
+        {
+            if (args.ValueKind == JsonValueKind.Object && args.TryGetProperty(prop, out var el))
+            {
+                if (el.ValueKind == JsonValueKind.String) return el.GetString();
+                if (el.ValueKind == JsonValueKind.Number) return el.ToString();
+            }
+            return null;
+        }
+
+        private static double? GetNum(JsonElement args, string prop)
+        {
+            if (args.ValueKind == JsonValueKind.Object && args.TryGetProperty(prop, out var el))
+            {
+                if (el.ValueKind == JsonValueKind.Number && el.TryGetDouble(out var d)) return d;
+                if (el.ValueKind == JsonValueKind.String && double.TryParse(el.GetString(), out var d2)) return d2;
+            }
+            return null;
+        }
+
+        private static bool? GetBool(JsonElement args, string prop)
+        {
+            if (args.ValueKind == JsonValueKind.Object && args.TryGetProperty(prop, out var el))
+            {
+                if (el.ValueKind == JsonValueKind.True) return true;
+                if (el.ValueKind == JsonValueKind.False) return false;
+                if (el.ValueKind == JsonValueKind.String && bool.TryParse(el.GetString(), out var b)) return b;
+            }
+            return null;
+        }
+
+        private static (DateTime from, DateTime to) ResolvePeriod(string? period)
+        {
+            var now = DateTime.UtcNow;
+            return (period?.Trim().ToLowerInvariant()) switch
+            {
+                "today"      => (now.Date, now.Date.AddDays(1)),
+                "this_week"  => (now.Date.AddDays(-(int)now.DayOfWeek), now.Date.AddDays(7 - (int)now.DayOfWeek)),
+                "this_month" => (new DateTime(now.Year, now.Month, 1), new DateTime(now.Year, now.Month, 1).AddMonths(1)),
+                "this_year"  => (new DateTime(now.Year, 1, 1), new DateTime(now.Year + 1, 1, 1)),
+                _            => (DateTime.MinValue, DateTime.MaxValue) // "all", null, or unrecognized
+            };
+        }
+
+        private static string PeriodLabel(string? period) => period?.Trim().ToLowerInvariant() switch
+        {
+            "today"      => "اليوم",
+            "this_week"  => "هذا الأسبوع",
+            "this_month" => "هذا الشهر",
+            "this_year"  => "هذه السنة",
+            _            => "كل الفترات"
+        };
+
         // ── Tool dispatcher ───────────────────────────────────────────────────
 
-        private Task<string> ExecuteToolAsync(string name, JsonElement _, string userId, string userRole)
+        private Task<string> ExecuteToolAsync(string name, JsonElement args, string userId, string userRole)
             => name switch
             {
                 "get_center_statistics"    => ToolCenterStatisticsAsync(),
-                "get_course_details"       => ToolCourseDetailsAsync(),
-                "get_payment_breakdown"    => ToolPaymentBreakdownAsync(),
-                "get_trainees_with_payments" => ToolTraineesWithPaymentsAsync(),
+                "get_course_details"       => ToolCourseDetailsAsync(GetStr(args, "course_name")),
+                "get_payment_breakdown"    => ToolPaymentBreakdownAsync(GetStr(args, "period")),
+                "search_trainees"          => ToolSearchTraineesAsync(
+                                                  GetStr(args, "name"),
+                                                  GetStr(args, "course_name"),
+                                                  GetStr(args, "payment_status"),
+                                                  GetNum(args, "min_attendance"),
+                                                  GetNum(args, "max_attendance")),
+                "search_payments"          => ToolSearchPaymentsAsync(
+                                                  GetStr(args, "trainee_name"),
+                                                  GetStr(args, "course_name"),
+                                                  GetNum(args, "min_amount"),
+                                                  GetNum(args, "max_amount"),
+                                                  GetStr(args, "period")),
                 "get_exam_statistics"      => ToolExamStatisticsAsync(),
+                "search_trainers"          => ToolSearchTrainersAsync(
+                                                  GetStr(args, "name"),
+                                                  GetStr(args, "specialty"),
+                                                  GetNum(args, "min_experience")),
+                "search_exam_attempts"     => ToolSearchExamAttemptsAsync(
+                                                  GetStr(args, "exam_or_course_name"),
+                                                  GetStr(args, "trainee_name"),
+                                                  GetBool(args, "passed"),
+                                                  GetNum(args, "min_score"),
+                                                  GetNum(args, "max_score")),
+                "search_certificates"      => ToolSearchCertificatesAsync(
+                                                  GetStr(args, "trainee_name"),
+                                                  GetStr(args, "course_name"),
+                                                  GetNum(args, "min_average")),
                 "get_my_courses"           => ToolMyCoursesAsync(userId),
                 "get_my_attendance"        => ToolMyAttendanceAsync(userId),
                 "get_my_exam_results"      => ToolMyExamResultsAsync(userId),
@@ -1110,10 +1246,13 @@ namespace TrainingCenterManagement_MVC.Services
                 """;
         }
 
-        private async Task<string> ToolCourseDetailsAsync()
+        private async Task<string> ToolCourseDetailsAsync(string? courseNameFilter = null)
         {
-            var courses = await _context.Courses
-                .Where(c => !c.IsDeleted)
+            var query = _context.Courses.Where(c => !c.IsDeleted);
+            if (!string.IsNullOrWhiteSpace(courseNameFilter))
+                query = query.Where(c => c.CourseName.Contains(courseNameFilter));
+
+            var courses = await query
                 .Include(c => c.CourseTrainers)
                     .ThenInclude(ct => ct.Trainer)
                         .ThenInclude(t => t.User)
@@ -1122,9 +1261,12 @@ namespace TrainingCenterManagement_MVC.Services
                 .OrderByDescending(c => c.CourseTrainees.Count)
                 .ToListAsync();
 
-            if (!courses.Any()) return "لا توجد دورات نشطة.";
+            if (!courses.Any())
+                return string.IsNullOrWhiteSpace(courseNameFilter)
+                    ? "لا توجد دورات نشطة."
+                    : $"لا توجد دورة تطابق '{courseNameFilter}'.";
 
-            var sb = new StringBuilder($"الدورات النشطة ({courses.Count} دورة):\n");
+            var sb = new StringBuilder($"الدورات ({courses.Count}):\n");
             foreach (var c in courses)
             {
                 var trainers = c.CourseTrainers
@@ -1138,16 +1280,20 @@ namespace TrainingCenterManagement_MVC.Services
             return sb.ToString();
         }
 
-        private async Task<string> ToolPaymentBreakdownAsync()
+        private async Task<string> ToolPaymentBreakdownAsync(string? period = null)
         {
-            var pmts    = await _context.Payments.Where(p => !p.IsDeleted).ToListAsync();
+            var (from, to) = ResolvePeriod(period);
+            var pmts    = await _context.Payments
+                .Where(p => !p.IsDeleted && p.CreatedDate >= from && p.CreatedDate < to)
+                .ToListAsync();
             var pending = await _context.PaymentRequests.CountAsync(r => r.Status == PaymentRequestStatus.Pending);
-            if (!pmts.Any()) return "لا توجد سجلات دفع.";
+            var periodLabel = PeriodLabel(period);
 
-            var sb = new StringBuilder("تفاصيل المدفوعات:\n");
+            if (!pmts.Any()) return $"لا توجد سجلات دفع خلال {periodLabel}.";
+
+            var sb = new StringBuilder($"تفاصيل المدفوعات ({periodLabel}):\n");
             sb.AppendLine($"إجمالي الإيرادات: {pmts.Sum(p => p.TotalAmount):N0}");
             sb.AppendLine($"إجمالي الدفعات: {pmts.Count}");
-            sb.AppendLine($"مدفوعات اليوم: {pmts.Count(p => p.CreatedDate >= DateTime.UtcNow.Date)}");
             sb.AppendLine($"طلبات دفع قيد المراجعة: {pending}");
             sb.AppendLine("التوزيع بالعملة:");
             foreach (var g in pmts.GroupBy(p => p.Currency))
@@ -1155,34 +1301,80 @@ namespace TrainingCenterManagement_MVC.Services
             return sb.ToString();
         }
 
-        private async Task<string> ToolTraineesWithPaymentsAsync()
+        private async Task<string> ToolSearchTraineesAsync(
+            string? name = null, string? courseName = null, string? paymentStatus = null,
+            double? minAttendance = null, double? maxAttendance = null)
         {
+            var query = _context.Trainees.Include(t => t.User).AsQueryable();
+
+            if (!string.IsNullOrWhiteSpace(name))
+                query = query.Where(t => t.User.FullName.Contains(name) || t.User.Email.Contains(name));
+
+            if (!string.IsNullOrWhiteSpace(courseName))
+                query = query.Where(t => t.CourseTrainees.Any(ct => ct.Course.CourseName.Contains(courseName)));
+
+            var trainees = await query.AsNoTracking().ToListAsync();
+            if (!trainees.Any()) return "لا يوجد متدربون يطابقون هذا البحث.";
+
             // "Payment" (confirmed, no status concept) and "PaymentRequest" (Pending/Approved/Rejected)
-            // are two different tables — "regardless of status" means union both, not just one.
+            // are two different tables — "regardless of status" means checking both, not just one.
             var paymentSums = await _context.Payments
                 .Where(p => !p.IsDeleted)
                 .GroupBy(p => p.TraineeId)
                 .Select(g => new { TraineeId = g.Key, Total = g.Sum(p => p.TotalAmount) })
                 .ToListAsync();
-
             var requestRows = await _context.PaymentRequests
                 .Select(r => new { r.TraineeId, r.Status })
                 .ToListAsync();
 
-            var allTraineeIds = paymentSums.Select(p => p.TraineeId)
-                .Concat(requestRows.Select(r => r.TraineeId))
-                .Distinct()
-                .ToList();
+            var normalizedStatus = paymentStatus?.Trim().ToLowerInvariant();
+            if (!string.IsNullOrWhiteSpace(normalizedStatus))
+            {
+                trainees = trainees.Where(t =>
+                {
+                    var hasPayment  = paymentSums.Any(p => p.TraineeId == t.TraineeId);
+                    var reqStatuses = requestRows.Where(r => r.TraineeId == t.TraineeId).Select(r => r.Status).ToList();
+                    return normalizedStatus switch
+                    {
+                        "any"         => hasPayment || reqStatuses.Any(),
+                        "has_payment" => hasPayment,
+                        "pending"     => reqStatuses.Contains(PaymentRequestStatus.Pending),
+                        "approved"    => reqStatuses.Contains(PaymentRequestStatus.Approved),
+                        "rejected"    => reqStatuses.Contains(PaymentRequestStatus.Rejected),
+                        "none"        => !hasPayment && !reqStatuses.Any(),
+                        _             => true
+                    };
+                }).ToList();
+            }
 
-            if (!allTraineeIds.Any()) return "لا يوجد متدربون لديهم أي دفعات أو طلبات دفع حتى الآن.";
+            // Attendance is only computed when the question actually asked for it (avoids
+            // per-trainee extra queries on every plain name/course search).
+            var attendanceByTrainee = new Dictionary<Guid, double>();
+            if (minAttendance.HasValue || maxAttendance.HasValue)
+            {
+                foreach (var t in trainees)
+                {
+                    var courseIds = await _context.CourseTrainees
+                        .Where(ct => ct.TraineeId == t.TraineeId)
+                        .Select(ct => ct.CourseId)
+                        .ToListAsync();
 
-            var trainees = await _context.Trainees
-                .Include(t => t.User)
-                .Where(t => allTraineeIds.Contains(t.TraineeId))
-                .AsNoTracking()
-                .ToListAsync();
+                    if (!courseIds.Any()) { attendanceByTrainee[t.TraineeId] = 0; continue; }
 
-            var sb = new StringBuilder($"المتدربون الذين لديهم دفعات مالية (بغض النظر عن حالتها) — {trainees.Count} متدرب:\n");
+                    var totalLectures = await _context.Lectures.CountAsync(l => courseIds.Contains(l.CourseId) && !l.IsDeleted);
+                    var attended = await _context.Presences.CountAsync(p => p.TraineeId == t.TraineeId && p.IsPresent);
+                    attendanceByTrainee[t.TraineeId] = totalLectures > 0 ? attended * 100.0 / totalLectures : 0;
+                }
+
+                if (minAttendance.HasValue)
+                    trainees = trainees.Where(t => attendanceByTrainee[t.TraineeId] >= minAttendance.Value).ToList();
+                if (maxAttendance.HasValue)
+                    trainees = trainees.Where(t => attendanceByTrainee[t.TraineeId] <= maxAttendance.Value).ToList();
+            }
+
+            if (!trainees.Any()) return "لا يوجد متدربون يطابقون كل الشروط المطلوبة معاً.";
+
+            var sb = new StringBuilder($"المتدربون المطابقون للبحث ({trainees.Count}):\n");
             foreach (var t in trainees.OrderBy(x => x.User?.FullName))
             {
                 var paidTotal = paymentSums.FirstOrDefault(p => p.TraineeId == t.TraineeId)?.Total ?? 0;
@@ -1199,8 +1391,44 @@ namespace TrainingCenterManagement_MVC.Services
                     .ToList();
 
                 var statusPart = statuses.Count > 0 ? $" | طلبات دفع: {string.Join("، ", statuses)}" : "";
-                sb.AppendLine($"- {t.User?.FullName ?? "—"}: مدفوعات مؤكدة {paidTotal:N0}{statusPart}");
+                var attPart = attendanceByTrainee.TryGetValue(t.TraineeId, out var pct) ? $" | نسبة الحضور: {pct:F0}%" : "";
+                sb.AppendLine($"- {t.User?.FullName ?? "—"} ({t.User?.Email}): مدفوعات مؤكدة {paidTotal:N0}{statusPart}{attPart}");
             }
+            return sb.ToString();
+        }
+
+        private async Task<string> ToolSearchPaymentsAsync(
+            string? traineeName = null, string? courseName = null,
+            double? minAmount = null, double? maxAmount = null, string? period = null)
+        {
+            var (from, to) = ResolvePeriod(period);
+            var query = _context.Payments
+                .Where(p => !p.IsDeleted && p.CreatedDate >= from && p.CreatedDate < to)
+                .Include(p => p.Trainee).ThenInclude(t => t.User)
+                .Include(p => p.Course)
+                .AsQueryable();
+
+            if (!string.IsNullOrWhiteSpace(traineeName))
+                query = query.Where(p => p.Trainee.User.FullName.Contains(traineeName));
+            if (!string.IsNullOrWhiteSpace(courseName))
+                query = query.Where(p => p.Course.CourseName.Contains(courseName));
+            if (minAmount.HasValue)
+                query = query.Where(p => p.TotalAmount >= (decimal)minAmount.Value);
+            if (maxAmount.HasValue)
+                query = query.Where(p => p.TotalAmount <= (decimal)maxAmount.Value);
+
+            var payments = await query
+                .OrderByDescending(p => p.CreatedDate)
+                .AsNoTracking()
+                .ToListAsync();
+
+            if (!payments.Any()) return "لا توجد مدفوعات تطابق هذا البحث.";
+
+            var sb = new StringBuilder($"المدفوعات المطابقة ({payments.Count}) — الإجمالي {payments.Sum(p => p.TotalAmount):N0}:\n");
+            foreach (var p in payments.Take(30))
+                sb.AppendLine($"- {p.Trainee?.User?.FullName ?? "—"} | {p.Course?.CourseName ?? "—"} | {p.TotalAmount:N0} {p.Currency} | {p.CreatedDate:dd/MM/yyyy}");
+            if (payments.Count > 30)
+                sb.AppendLine($"... و{payments.Count - 30} دفعة أخرى غير معروضة.");
             return sb.ToString();
         }
 
@@ -1221,6 +1449,92 @@ namespace TrainingCenterManagement_MVC.Services
                 الراسبون: {total - passed} ({(total > 0 ? (total - passed) * 100.0 / total : 0):F1}%)
                 متوسط الدرجات: {avgScore:F1}
                 """;
+        }
+
+        private async Task<string> ToolSearchTrainersAsync(
+            string? name = null, string? specialty = null, double? minExperience = null)
+        {
+            var query = _context.Trainers.Include(t => t.User).AsQueryable();
+
+            if (!string.IsNullOrWhiteSpace(name))
+                query = query.Where(t => t.User.FullName.Contains(name) || t.User.Email.Contains(name));
+            if (!string.IsNullOrWhiteSpace(specialty))
+                query = query.Where(t => t.Specialty.Contains(specialty));
+            if (minExperience.HasValue)
+                query = query.Where(t => t.YearsOfExperience >= (int)minExperience.Value);
+
+            var trainers = await query.AsNoTracking().ToListAsync();
+            if (!trainers.Any()) return "لا يوجد مدربون يطابقون هذا البحث.";
+
+            var sb = new StringBuilder($"المدربون المطابقون للبحث ({trainers.Count}):\n");
+            foreach (var t in trainers.OrderBy(x => x.User?.FullName))
+                sb.AppendLine($"- {t.User?.FullName ?? "—"} | التخصص: {t.Specialty} | الخبرة: {t.YearsOfExperience} سنة | {t.User?.Email}");
+            return sb.ToString();
+        }
+
+        private async Task<string> ToolSearchExamAttemptsAsync(
+            string? examOrCourseName = null, string? traineeName = null,
+            bool? passed = null, double? minScore = null, double? maxScore = null)
+        {
+            var query = _context.ExamAttempts
+                .Where(a => a.SubmittedAt != null)
+                .Include(a => a.Exam).ThenInclude(e => e.Course)
+                .Include(a => a.Trainee).ThenInclude(t => t.User)
+                .AsQueryable();
+
+            if (!string.IsNullOrWhiteSpace(examOrCourseName))
+                query = query.Where(a => a.Exam.ExamName.Contains(examOrCourseName) || a.Exam.Course.CourseName.Contains(examOrCourseName));
+            if (!string.IsNullOrWhiteSpace(traineeName))
+                query = query.Where(a => a.Trainee.User.FullName.Contains(traineeName));
+            if (passed.HasValue)
+                query = query.Where(a => a.IsPassed == passed.Value);
+            if (minScore.HasValue)
+                query = query.Where(a => a.ScorePercentage >= (decimal)minScore.Value);
+            if (maxScore.HasValue)
+                query = query.Where(a => a.ScorePercentage <= (decimal)maxScore.Value);
+
+            var attempts = await query
+                .OrderByDescending(a => a.SubmittedAt)
+                .AsNoTracking()
+                .ToListAsync();
+
+            if (!attempts.Any()) return "لا توجد محاولات امتحان تطابق هذا البحث.";
+
+            var sb = new StringBuilder($"محاولات الامتحانات المطابقة ({attempts.Count}):\n");
+            foreach (var a in attempts.Take(30))
+                sb.AppendLine($"- {a.Trainee?.User?.FullName ?? "—"} | {a.Exam?.ExamName ?? "—"} ({a.Exam?.Course?.CourseName ?? "—"}) | " +
+                    $"{(a.ScorePercentage.HasValue ? a.ScorePercentage.Value.ToString("F1") + "%" : "—")} | " +
+                    $"{(a.IsPassed == true ? "ناجح" : a.IsPassed == false ? "راسب" : "—")}");
+            if (attempts.Count > 30)
+                sb.AppendLine($"... و{attempts.Count - 30} محاولة أخرى غير معروضة.");
+            return sb.ToString();
+        }
+
+        private async Task<string> ToolSearchCertificatesAsync(
+            string? traineeName = null, string? courseName = null, double? minAverage = null)
+        {
+            var query = _context.Certificates
+                .Where(c => !c.IsDeleted)
+                .Include(c => c.Trainee).ThenInclude(t => t.User)
+                .Include(c => c.Course)
+                .AsQueryable();
+
+            if (!string.IsNullOrWhiteSpace(traineeName))
+                query = query.Where(c => c.Trainee.User.FullName.Contains(traineeName));
+            if (!string.IsNullOrWhiteSpace(courseName))
+                query = query.Where(c => c.Course.CourseName.Contains(courseName));
+            if (minAverage.HasValue)
+                query = query.Where(c => c.Average >= (float)minAverage.Value);
+
+            var certs = await query.AsNoTracking().ToListAsync();
+            if (!certs.Any()) return "لا توجد شهادات تطابق هذا البحث.";
+
+            var sb = new StringBuilder($"الشهادات المطابقة ({certs.Count}):\n");
+            foreach (var c in certs.Take(30))
+                sb.AppendLine($"- {c.Trainee?.User?.FullName ?? "—"} | {c.Course?.CourseName ?? "—"} | المعدل: {c.Average:F1}");
+            if (certs.Count > 30)
+                sb.AppendLine($"... و{certs.Count - 30} شهادة أخرى غير معروضة.");
+            return sb.ToString();
         }
 
         // ── Trainee tools ─────────────────────────────────────────────────────
@@ -1643,10 +1957,18 @@ namespace TrainingCenterManagement_MVC.Services
                 • get_center_statistics ← إحصائيات المركز: عدد المتدربين (ذكور/إناث)، المدربون، الدورات، الإيرادات، الامتحانات، الشهادات، الجلسات
                 • get_course_details    ← قائمة الدورات: الاسم، عدد المتدربين، أسماء المدربين، السعر
                 • get_payment_breakdown ← تفاصيل المدفوعات: الإجمالي، التوزيع بالعملة، طلبات معلقة
-                • get_trainees_with_payments ← أسماء المتدربين الذين لديهم دفعات/طلبات دفع بغض النظر عن الحالة (مقبولة/مرفوضة/قيد المراجعة)
+                • search_trainees       ← بحث مرن عن متدربين بالاسم/الدورة/حالة الدفع/نسبة الحضور
+                • search_payments       ← بحث مرن في سجلات الدفع بالاسم/الدورة/المبلغ/الفترة
                 • get_exam_statistics   ← إحصائيات الامتحانات: نسب النجاح، متوسط الدرجات، عدد المحاولات
+                • search_trainers       ← بحث مرن عن مدربين بالاسم/التخصص/سنوات الخبرة
+                • search_exam_attempts  ← بحث في نتائج امتحانات مُسلَّمة بالامتحان/الدورة/المتدرب/النجاح أو الرسوب/الدرجة
+                • search_certificates   ← بحث في الشهادات الصادرة بالمتدرب/الدورة/المعدل
 
                 قاعدة: أي سؤال عن بيانات → استدعِ الأداة أولاً → أجب من النتيجة.
+                قاعدة مهمة: search_trainees وsearch_payments وget_payment_breakdown وget_course_details تقبل معاملات (parameters).
+                لا تستدعِها فارغة دائماً — اقرأ سياق السؤال جيداً واستخرج منه القيم الفعلية (اسم شخص، اسم دورة، حالة دفع،
+                فترة زمنية، مبلغ، نسبة حضور...) ومرِّرها كمعاملات للأداة. لا تُطبِّق نفس الاستدعاء الفارغ على كل سؤال —
+                كل سؤال مختلف يستحق معاملات مختلفة مبنية على كلماته هو تحديداً.
                 """,
             "Trainer" => """
 
