@@ -1278,10 +1278,34 @@ namespace TrainingCenterManagement_MVC.Services
             .Select(t => JsonDocument.Parse(JsonSerializer.Serialize(t)).RootElement.GetProperty("name").GetString()!)
             .ToHashSet();
 
+        // Maps a plausible-but-wrong tool name (e.g. "get_users") to the real one
+        // ("search_users") by comparing the name stripped of its get_/search_/get_my_
+        // prefix. Only used for the free-form Ollama FETCH: path — hosted providers'
+        // real function calling never produces a name outside the schema they were given.
+        private static string ResolveToolName(string requested, HashSet<string> allowed)
+        {
+            var normalized = requested.Trim().ToLowerInvariant();
+            if (allowed.Contains(normalized)) return normalized;
+
+            static string Core(string n) => n switch
+            {
+                _ when n.StartsWith("get_my_")    => n["get_my_".Length..],
+                _ when n.StartsWith("search_my_") => n["search_my_".Length..],
+                _ when n.StartsWith("get_")       => n["get_".Length..],
+                _ when n.StartsWith("search_")    => n["search_".Length..],
+                _                                 => n
+            };
+
+            var requestedCore = Core(normalized);
+            return allowed.FirstOrDefault(a => Core(a) == requestedCore) ?? normalized;
+        }
+
         private Task<string> ExecuteToolAsync(string name, JsonElement args, string userId, string userRole)
         {
             if (!AllowedToolNames(userRole).Contains(name))
-                return Task.FromResult("لا تملك صلاحية الوصول إلى هذه الأداة.");
+                return Task.FromResult(
+                    "❌ لا توجد صلاحية للوصول إلى هذه الأداة، ولا توجد بيانات حقيقية هنا. " +
+                    "أخبر المستخدم صراحةً أنك لا تملك هذه الصلاحية أو المعلومة الآن — لا تخترع أي بديل.");
 
             return name switch
             {
@@ -1355,7 +1379,9 @@ namespace TrainingCenterManagement_MVC.Services
                                                   GetNum(args, "min_attendance"),
                                                   GetNum(args, "max_attendance")),
                 "get_my_question_bank"     => ToolGetMyQuestionBankAsync(userId),
-                _                          => Task.FromResult($"الأداة '{name}' غير معرّفة.")
+                _                          => Task.FromResult(
+                    $"❌ الأداة '{name}' غير موجودة، ولا توجد بيانات حقيقية لهذا الطلب. " +
+                    "أخبر المستخدم صراحةً أنك لا تملك هذه المعلومة الآن — لا تخترع أي اسم أو رقم أو دور بديل.")
             };
         }
 
@@ -2541,24 +2567,35 @@ namespace TrainingCenterManagement_MVC.Services
             if (!fetchRequests.Any())
                 return SanitizeLlmResponse(firstPass);
 
+            // Local Ollama models write the tool name from memory rather than copying it
+            // exactly (e.g. "get_users" instead of the real "search_users") — resolve
+            // near-miss names against the role's actual tool list before dispatching,
+            // instead of just failing the fetch on a cosmetic mismatch.
+            var allowedNames = AllowedToolNames(userRole);
+            var resolvedNames = fetchRequests.Select(n => ResolveToolName(n, allowedNames)).ToList();
+
             _logger.LogDebug("Ollama FETCH ({Count}): {Names}",
-                fetchRequests.Count, string.Join(", ", fetchRequests));
+                resolvedNames.Count, string.Join(", ", resolvedNames));
 
             // ── Execute all fetches in PARALLEL ──────────────────────────────
             var defaultEl   = JsonDocument.Parse("{}").RootElement;
-            var fetchTasks  = fetchRequests.Select(name =>
+            var fetchTasks  = resolvedNames.Select(name =>
                 ExecuteToolAsync(name, defaultEl, userId, userRole));
             var fetchResults = await Task.WhenAll(fetchTasks);
 
             // ── Build data block & do second pass ────────────────────────────
             var dataBlock = new StringBuilder("\n\n---\n## بيانات قاعدة البيانات المسترجعة:\n");
-            for (int i = 0; i < fetchRequests.Count; i++)
+            for (int i = 0; i < resolvedNames.Count; i++)
             {
-                dataBlock.AppendLine($"\n### [{fetchRequests[i]}]");
+                dataBlock.AppendLine($"\n### [{resolvedNames[i]}]");
                 dataBlock.AppendLine(fetchResults[i]);
             }
             dataBlock.AppendLine("\n---");
-            dataBlock.AppendLine("استناداً إلى البيانات أعلاه، أجب الآن على سؤال المستخدم:");
+            dataBlock.AppendLine(
+                "استناداً إلى البيانات الحقيقية أعلاه فقط، أجب الآن على سؤال المستخدم. " +
+                "لا تكتب \"FETCH:\" مرة أخرى — البيانات المطلوبة أعلاه بالفعل. " +
+                "إن كانت النتيجة أعلاه تفيد بعدم وجود صلاحية أو عدم وجود بيانات، فقل ذلك صراحةً للمستخدم — " +
+                "لا تخترع أسماءً أو أرقاماً أو أدواراً بديلة مهما بدت منطقية.");
 
             var enrichedForFinal = guidedPrompt + dataBlock;
             var finalPass = await CallOllamaAsync(enrichedForFinal, history, question, ollamaUrl, ollamaModel);
@@ -3005,13 +3042,24 @@ namespace TrainingCenterManagement_MVC.Services
             if (string.IsNullOrWhiteSpace(response))
                 return "عذراً، لم أتمكن من توليد رد. يرجى المحاولة مجدداً.";
 
+            // Weak local models sometimes echo the "FETCH: <tool>" instruction pattern
+            // into their own final answer instead of only using it as a control signal —
+            // strip any such leftover lines so they never reach the user verbatim.
+            var cleaned = string.Join('\n', response
+                .Split('\n')
+                .Where(l => !l.TrimStart().StartsWith("FETCH:", StringComparison.OrdinalIgnoreCase)))
+                .Trim();
+
+            if (string.IsNullOrWhiteSpace(cleaned))
+                return "عذراً، لم أتمكن من توليد رد. يرجى المحاولة مجدداً.";
+
             // Detect meta-responses about language switching (common Ollama failure mode)
-            if (response.Contains("تغيير اللغة") || response.Contains("change the language")
-                || response.Contains("switch to Arabic") || response.Contains("Arabic")
-                || response.Length < 12)
+            if (cleaned.Contains("تغيير اللغة") || cleaned.Contains("change the language")
+                || cleaned.Contains("switch to Arabic") || cleaned.Contains("Arabic")
+                || cleaned.Length < 12)
                 return "عذراً، لم أتمكن من فهم سؤالك بشكل صحيح. يرجى إعادة صياغته وسأحاول مساعدتك.";
 
-            return response;
+            return cleaned;
         }
 
         private static bool Has(string text, params string[] words)
