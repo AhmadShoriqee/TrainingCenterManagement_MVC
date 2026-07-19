@@ -1,30 +1,62 @@
-﻿
 @model List<TrainingCenterManagement_MVC.Models.RecentContact>
 @{
     ViewData["Title"] = "دردشات دعم العملاء";
 }
 
-<div class="chat-container">
-    <div class="chat-header">دردشات دعم العملاء</div>
-    <div class="chat-list">
-        @if (Model.Count == 0)
-        {
-            <p>لا توجد دردشات عملاء متاحة.</p>
-        }
-        else
-        {
-            @foreach (var contact in Model)
-            {
-                <div class="chat-item">
-                    <a href="@Url.Action("AdminCustomerSupportChat", "Chat", new { guestId = contact.UserId })">
-                        <div class="chat-info">
-                            <span class="chat-name">@contact.Username</span>
-                            <p class="chat-preview">@contact.LastMessage</p>
-                            <span class="chat-time">@contact.LastMessageTime.ToString("g")</span>
-                        </div>
-                    </a>
+<style>
+    .cs-list-bg { min-height: 100vh; padding: 1.5rem; background: linear-gradient(160deg, #eafaf6 0%, #eef2f7 55%, #f6f3ff 100%); display:flex; justify-content:center; }
+    .cs-list-shell { width:100%; max-width: 620px; }
+    .cs-list-card { background:#fff; border-radius:22px; box-shadow:0 18px 45px rgba(17,27,33,.12); overflow:hidden; }
+    .cs-list-header { display:flex; align-items:center; gap:.85rem; padding:1.25rem 1.4rem; background:linear-gradient(135deg,#0b8f77,#18a68b); color:#fff; }
+    .cs-list-header .wa-icon-btn { background:rgba(255,255,255,.16); pointer-events:none; }
+    .cs-list-header h1 { margin:0; font-size:1.25rem; }
+    .cs-list-header p { margin:.2rem 0 0; font-size:.8rem; opacity:.85; }
+    .cs-list-body { padding:.75rem; max-height: calc(100vh - 12rem); overflow-y:auto; }
+    .cs-empty-state { text-align:center; padding:3rem 1rem; color:#8a97a0; }
+    .cs-empty-state i { font-size:2.8rem; color:#0b8f77; opacity:.5; margin-bottom:.75rem; display:block; }
+    .cs-count-badge { margin-inline-start:auto; background:rgba(255,255,255,.2); padding:4px 12px; border-radius:20px; font-size:.8rem; font-weight:700; }
+</style>
+
+<div class="cs-list-bg">
+    <div class="cs-list-shell">
+        <div class="cs-list-card">
+            <div class="cs-list-header">
+                <div class="wa-icon-btn"><i class="fas fa-headset"></i></div>
+                <div>
+                    <h1>دردشات دعم العملاء</h1>
+                    <p>محادثات الزوار والمتدربين مع فريق الدعم</p>
                 </div>
-            }
-        }
+                <span class="cs-count-badge">@Model.Count</span>
+            </div>
+            <div class="cs-list-body">
+                @if (Model.Count == 0)
+                {
+                    <div class="cs-empty-state">
+                        <i class="fas fa-inbox"></i>
+                        <div>لا توجد دردشات عملاء متاحة حالياً</div>
+                    </div>
+                }
+                else
+                {
+                    <div class="wa-directory-list">
+                        @foreach (var contact in Model)
+                        {
+                            var initials = !string.IsNullOrEmpty(contact.Username) ? contact.Username[0].ToString() : "؟";
+                            <a class="wa-contact-card" href="@Url.Action("AdminCustomerSupportChat", "Chat", new { guestId = contact.UserId })" style="text-decoration:none;">
+                                <div class="wa-contact-avatar">@initials</div>
+                                <div class="wa-contact-main">
+                                    <div class="wa-contact-row">
+                                        <span class="wa-contact-name">@contact.Username</span>
+                                        <span class="wa-contact-time">@contact.LastMessageTime.ToString("g")</span>
+                                    </div>
+                                    <div class="wa-contact-preview">@contact.LastMessage</div>
+                                </div>
+                                <i class="fas fa-chevron-left" style="color:#c7cfd3"></i>
+                            </a>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
     </div>
 </div>

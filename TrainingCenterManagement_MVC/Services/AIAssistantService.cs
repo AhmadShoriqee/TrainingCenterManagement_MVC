@@ -1015,6 +1015,8 @@ namespace TrainingCenterManagement_MVC.Services
                     "تفاصيل كل دورة نشطة: اسم الدورة، رقم الدفعة، عدد المتدربين المسجلين، عدد المدربين المُعيَّنين وأسماؤهم، السعر والعملة"));
                 tools.Add(Tool("get_payment_breakdown",
                     "تحليل المدفوعات: الإجمالي الكلي، عدد الدفعات، مدفوعات اليوم، طلبات قيد المراجعة، التوزيع بالعملات"));
+                tools.Add(Tool("get_trainees_with_payments",
+                    "أسماء جميع المتدربين الذين لديهم دفعات مالية أو طلبات دفع، بغض النظر عن حالة الطلب (مقبولة/مرفوضة/قيد المراجعة)، مع إجمالي المدفوعات المؤكدة لكل متدرب وحالة طلبات الدفع الخاصة به"));
                 tools.Add(Tool("get_exam_statistics",
                     "إحصائيات الامتحانات: عدد الامتحانات المُعدَّة، إجمالي المحاولات، عدد الناجحين والراسبين مع النسب المئوية، متوسط الدرجات"));
             }
@@ -1063,6 +1065,7 @@ namespace TrainingCenterManagement_MVC.Services
                 "get_center_statistics"    => ToolCenterStatisticsAsync(),
                 "get_course_details"       => ToolCourseDetailsAsync(),
                 "get_payment_breakdown"    => ToolPaymentBreakdownAsync(),
+                "get_trainees_with_payments" => ToolTraineesWithPaymentsAsync(),
                 "get_exam_statistics"      => ToolExamStatisticsAsync(),
                 "get_my_courses"           => ToolMyCoursesAsync(userId),
                 "get_my_attendance"        => ToolMyAttendanceAsync(userId),
@@ -1149,6 +1152,55 @@ namespace TrainingCenterManagement_MVC.Services
             sb.AppendLine("التوزيع بالعملة:");
             foreach (var g in pmts.GroupBy(p => p.Currency))
                 sb.AppendLine($"  - {g.Key}: {g.Sum(p => p.TotalAmount):N0} ({g.Count()} دفعة)");
+            return sb.ToString();
+        }
+
+        private async Task<string> ToolTraineesWithPaymentsAsync()
+        {
+            // "Payment" (confirmed, no status concept) and "PaymentRequest" (Pending/Approved/Rejected)
+            // are two different tables — "regardless of status" means union both, not just one.
+            var paymentSums = await _context.Payments
+                .Where(p => !p.IsDeleted)
+                .GroupBy(p => p.TraineeId)
+                .Select(g => new { TraineeId = g.Key, Total = g.Sum(p => p.TotalAmount) })
+                .ToListAsync();
+
+            var requestRows = await _context.PaymentRequests
+                .Select(r => new { r.TraineeId, r.Status })
+                .ToListAsync();
+
+            var allTraineeIds = paymentSums.Select(p => p.TraineeId)
+                .Concat(requestRows.Select(r => r.TraineeId))
+                .Distinct()
+                .ToList();
+
+            if (!allTraineeIds.Any()) return "لا يوجد متدربون لديهم أي دفعات أو طلبات دفع حتى الآن.";
+
+            var trainees = await _context.Trainees
+                .Include(t => t.User)
+                .Where(t => allTraineeIds.Contains(t.TraineeId))
+                .AsNoTracking()
+                .ToListAsync();
+
+            var sb = new StringBuilder($"المتدربون الذين لديهم دفعات مالية (بغض النظر عن حالتها) — {trainees.Count} متدرب:\n");
+            foreach (var t in trainees.OrderBy(x => x.User?.FullName))
+            {
+                var paidTotal = paymentSums.FirstOrDefault(p => p.TraineeId == t.TraineeId)?.Total ?? 0;
+                var statuses = requestRows
+                    .Where(r => r.TraineeId == t.TraineeId)
+                    .Select(r => r.Status switch
+                    {
+                        PaymentRequestStatus.Pending  => "قيد المراجعة",
+                        PaymentRequestStatus.Approved => "مقبولة",
+                        PaymentRequestStatus.Rejected => "مرفوضة",
+                        _ => r.Status.ToString()
+                    })
+                    .Distinct()
+                    .ToList();
+
+                var statusPart = statuses.Count > 0 ? $" | طلبات دفع: {string.Join("، ", statuses)}" : "";
+                sb.AppendLine($"- {t.User?.FullName ?? "—"}: مدفوعات مؤكدة {paidTotal:N0}{statusPart}");
+            }
             return sb.ToString();
         }
 
@@ -1591,6 +1643,7 @@ namespace TrainingCenterManagement_MVC.Services
                 • get_center_statistics ← إحصائيات المركز: عدد المتدربين (ذكور/إناث)، المدربون، الدورات، الإيرادات، الامتحانات، الشهادات، الجلسات
                 • get_course_details    ← قائمة الدورات: الاسم، عدد المتدربين، أسماء المدربين، السعر
                 • get_payment_breakdown ← تفاصيل المدفوعات: الإجمالي، التوزيع بالعملة، طلبات معلقة
+                • get_trainees_with_payments ← أسماء المتدربين الذين لديهم دفعات/طلبات دفع بغض النظر عن الحالة (مقبولة/مرفوضة/قيد المراجعة)
                 • get_exam_statistics   ← إحصائيات الامتحانات: نسب النجاح، متوسط الدرجات، عدد المحاولات
 
                 قاعدة: أي سؤال عن بيانات → استدعِ الأداة أولاً → أجب من النتيجة.

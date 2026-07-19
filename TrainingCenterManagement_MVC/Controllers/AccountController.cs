@@ -156,7 +156,15 @@ namespace TrainingCenterManagement_MVC.Controllers
                     await _context.SaveChangesAsync();
 
                     TempData["SuccessMessage"] = "تم إنشاء المستخدم بنجاح.";
-                    return RedirectToAction("GetUsers", "Admin");
+
+                    // Admin lands on the users list; Receptionist has no access to Admin-only
+                    // pages, so send them back to their own dashboard instead (previously this
+                    // always redirected to Admin/GetUsers, which 403'd for receptionists even
+                    // though the account had already been created successfully).
+                    if (User.IsInRole("Admin"))
+                        return RedirectToAction("GetUsers", "Admin");
+
+                    return RedirectToAction("ReceptionistDashboard", "Dashboard");
                 }
                 else
                 {

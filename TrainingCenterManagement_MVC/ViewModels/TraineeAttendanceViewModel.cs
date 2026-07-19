@@ -1,7 +1,10 @@
-﻿namespace TrainingCenterManagement_MVC.ViewModels
+﻿using System;
+
+namespace TrainingCenterManagement_MVC.ViewModels
 {
     public class TraineeAttendanceViewModel
     {
+        public Guid CourseId { get; set; }
         public string CourseName { get; set; }
         public int TotalLectures { get; set; }
         public int AttendedLectures { get; set; }

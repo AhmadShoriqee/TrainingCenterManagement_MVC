@@ -4,6 +4,7 @@
     var list = Model.ToList();
     var activeCount  = list.Count(c => !c.IsDeleted);
     var deletedCount = list.Count(c => c.IsDeleted);
+    bool isAdmin = ViewBag.IsAdmin == true;
 }
 
 <style>
@@ -76,7 +77,14 @@
 </style>
 
 <div class="dashboard-wrapper">
-    @await Html.PartialAsync("_AdminSidebar")
+    @if (isAdmin)
+    {
+        @await Html.PartialAsync("_AdminSidebar")
+    }
+    else
+    {
+        @await Html.PartialAsync("_TrainerSidebar")
+    }
     <main class="dashboard-main ct-page">
 
         <!-- Header -->
@@ -85,9 +93,12 @@
                 <span class="icon"><i class="fas fa-certificate"></i></span>
                 إدارة الشهادات
             </h1>
-            <a asp-action="Create" class="ct-add-btn">
-                <i class="fas fa-plus-circle"></i> إصدار شهادة
-            </a>
+            @if (isAdmin)
+            {
+                <a asp-action="Create" class="ct-add-btn">
+                    <i class="fas fa-plus-circle"></i> إصدار شهادة
+                </a>
+            }
         </div>
 
         <!-- Stats -->
@@ -199,15 +210,18 @@
                                         <a asp-action="Details" asp-route-id="@item.CertificateId" class="ct-act-btn ct-act-view">
                                             <i class="fas fa-eye"></i>
                                         </a>
-                                        <a asp-action="Edit" asp-route-id="@item.CertificateId" class="ct-act-btn ct-act-edit">
-                                            <i class="fas fa-pen"></i>
-                                        </a>
                                         <a asp-action="CertificatePdf" asp-route-id="@item.CertificateId" target="_blank" class="ct-act-btn ct-act-pdf">
                                             <i class="fas fa-file-pdf"></i>
                                         </a>
-                                        <a asp-action="Delete" asp-route-id="@item.CertificateId" class="ct-act-btn ct-act-del">
-                                            <i class="fas fa-trash-alt"></i>
-                                        </a>
+                                        @if (isAdmin)
+                                        {
+                                            <a asp-action="Edit" asp-route-id="@item.CertificateId" class="ct-act-btn ct-act-edit">
+                                                <i class="fas fa-pen"></i>
+                                            </a>
+                                            <a asp-action="Delete" asp-route-id="@item.CertificateId" class="ct-act-btn ct-act-del">
+                                                <i class="fas fa-trash-alt"></i>
+                                            </a>
+                                        }
                                     </div>
                                 </td>
                             </tr>

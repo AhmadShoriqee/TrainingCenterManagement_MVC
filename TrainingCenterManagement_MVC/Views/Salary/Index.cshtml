@@ -27,13 +27,17 @@
     .emp-cell { display:flex; align-items:center; gap:10px; }
     .emp-avatar { width:36px; height:36px; border-radius:50%; object-fit:cover; }
     .emp-avatar-fb { width:36px; height:36px; border-radius:50%; background:linear-gradient(135deg,#7c3aed,#a78bfa); color:#fff; font-size:.85rem; font-weight:700; display:inline-flex; align-items:center; justify-content:center; }
+    .role-admin { background:#fef3c7; color:#92400e; border-radius:6px; padding:3px 9px; font-size:.75rem; font-weight:700; }
     .role-trainer { background:#ede9fe; color:#5b21b6; border-radius:6px; padding:3px 9px; font-size:.75rem; font-weight:700; }
     .role-receptionist { background:#dbeafe; color:#1e40af; border-radius:6px; padding:3px 9px; font-size:.75rem; font-weight:700; }
-    .paid-chip   { background:#d1fae5; color:#065f46; border-radius:20px; padding:3px 10px; font-size:.78rem; font-weight:700; }
-    .unpaid-chip { background:#fee2e2; color:#991b1b; border-radius:20px; padding:3px 10px; font-size:.78rem; font-weight:700; }
+    .paid-chip    { background:#d1fae5; color:#065f46; border-radius:20px; padding:3px 10px; font-size:.78rem; font-weight:700; }
+    .unpaid-chip  { background:#fee2e2; color:#991b1b; border-radius:20px; padding:3px 10px; font-size:.78rem; font-weight:700; }
+    .unset-chip   { background:#f1f5f9; color:#64748b; border-radius:20px; padding:3px 10px; font-size:.78rem; font-weight:700; }
     .btn-sm-action { border:none; border-radius:8px; padding:6px 13px; font-size:.8rem; font-weight:600; cursor:pointer; text-decoration:none; display:inline-flex; align-items:center; gap:5px; }
     .btn-detail   { background:#f5f3ff; color:#7c3aed; }
     .btn-detail:hover { background:#ede9fe; color:#7c3aed; }
+    .btn-set      { background:#fff7ed; color:#c2410c; border:1px solid #fed7aa; }
+    .btn-set:hover { background:#ffedd5; color:#c2410c; }
     .btn-add      { background:linear-gradient(135deg,#7c3aed,#6d28d9); color:#fff; }
     .btn-add:hover { opacity:.9; color:#fff; }
     @@media (max-width:900px) { .sl-stats { grid-template-columns:1fr 1fr; } }
@@ -132,15 +136,20 @@
                         </div>
                     </td>
                     <td>
-                        <span class="@(e.Role == "Trainer" ? "role-trainer" : "role-receptionist")">
-                            @(e.Role == "Trainer" ? "مدرب" : "موظف استقبال")
+                        <span class="@(e.Role == "Admin" ? "role-admin" : e.Role == "Trainer" ? "role-trainer" : "role-receptionist")">
+                            @(e.Role == "Admin" ? "مدير" : e.Role == "Trainer" ? "مدرب" : "موظف استقبال")
                         </span>
                     </td>
                     <td style="font-weight:700;color:#1e1b4b">
-                        @e.MonthlySalary.ToString("N0") <span style="font-size:.8rem;color:#94a3b8">@e.CurrencyLabel</span>
+                        @if (e.HasSalary)
+                        { <text>@e.MonthlySalary.ToString("N0") <span style="font-size:.8rem;color:#94a3b8">@e.CurrencyLabel</span></text> }
+                        else
+                        { <span style="color:#94a3b8;font-weight:400">لم يُحدد</span> }
                     </td>
                     <td>
-                        @if (e.PaidThisMonth)
+                        @if (!e.HasSalary)
+                        { <span class="unset-chip"><i class="fas fa-minus-circle me-1"></i>لا يوجد راتب مُحدد</span> }
+                        else if (e.PaidThisMonth)
                         { <span class="paid-chip"><i class="fas fa-check me-1"></i>مصروف</span> }
                         else
                         { <span class="unpaid-chip"><i class="fas fa-clock me-1"></i>لم يُصرف</span> }
@@ -149,9 +158,18 @@
                         @(e.LastPaidAt.HasValue ? e.LastPaidAt.Value.ToString("dd/MM/yyyy") : "—")
                     </td>
                     <td>
-                        <a asp-action="Details" asp-controller="Salary" asp-route-id="@e.SalaryId" class="btn-sm-action btn-detail">
-                            <i class="fas fa-eye"></i> إدارة
-                        </a>
+                        @if (e.HasSalary)
+                        {
+                            <a asp-action="Details" asp-controller="Salary" asp-route-id="@e.SalaryId" class="btn-sm-action btn-detail">
+                                <i class="fas fa-eye"></i> إدارة
+                            </a>
+                        }
+                        else
+                        {
+                            <a asp-action="Create" asp-controller="Salary" asp-route-userId="@e.UserId" class="btn-sm-action btn-set">
+                                <i class="fas fa-coins"></i> تحديد الراتب
+                            </a>
+                        }
                     </td>
                 </tr>
             }

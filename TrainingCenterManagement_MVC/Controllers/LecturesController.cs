@@ -550,6 +550,7 @@ namespace TrainingCenterManagement_MVC.Controllers
 
 
         // GET: Lectures/MarkAttendance/5
+        [Authorize(Roles = "Trainer,Admin")]
         public async Task<IActionResult> MarkAttendance(Guid? id)
         {
             if (id == null) return NotFound();
@@ -564,6 +565,15 @@ namespace TrainingCenterManagement_MVC.Controllers
 
             if (lecture == null) return NotFound();
 
+            // Attendance can only be taken once the lecture has actually started —
+            // blocking it for future lectures (not past ones, which is when trainers
+            // actually need to record who showed up).
+            if (lecture.LectureDate > DateTime.UtcNow)
+            {
+                TempData["ErrorMessage"] = "لا يمكن تسجيل الحضور لمحاضرة لم تبدأ بعد.";
+                return RedirectToAction(nameof(ViewLecture), new { id = lecture.LectureId });
+            }
+
             var model = lecture.Course.CourseTrainees.Select(ct => new AttendanceViewModel
             {
                 TraineeId = ct.Trainee.TraineeId,
@@ -573,18 +583,15 @@ namespace TrainingCenterManagement_MVC.Controllers
 
             ViewBag.LectureId = lecture.LectureId;
             ViewBag.LectureTitle = lecture.Title;
+            ViewBag.LectureDate = lecture.LectureDate;
+            ViewBag.IsAdmin = User.IsInRole("Admin");
 
-            if (lecture.LectureDate < DateTime.UtcNow)
-            {
-                TempData["ErrorMessage"] = "Cannot mark attendance for a past lecture.";
-                return RedirectToAction(nameof(ViewLecture), new { id = lecture.LectureId });
-            }
             return View(model);
         }
 
         [HttpPost]
         [ValidateAntiForgeryToken]
-        [Authorize(Roles = "Trainer")]
+        [Authorize(Roles = "Trainer,Admin")]
         public async Task<IActionResult> MarkAttendance(Guid lectureId, List<AttendanceViewModel> attendanceList)
         {
             var existingPresences = await _context.Presences

@@ -1,4 +1,3 @@
-﻿
 @model List<TrainingCenterManagement_MVC.Models.GusetMessage>
 @{
     ViewData["Title"] = ViewBag.IsGuestChat ? "دردشة التواصل معنا" : "الدردشة الخاصة";
@@ -6,58 +5,137 @@
     string receiverUsername = ViewBag.ReceiverUsername ?? "دعم الإدارة";
     string senderId = ViewBag.SenderId;
     string senderUsername = ViewBag.SenderUsername ?? "ضيف";
-   
-    
+    bool isGuestChat = ViewBag.IsGuestChat ?? true;
+    var initials = receiverUsername.Length > 0 ? receiverUsername[0].ToString() : "؟";
 }
 
-<div class="chat-container">
-    <div class="chat-header">الدردشة مع @receiverUsername</div>
-    <div class="chat-box" id="chatBox">
-        @foreach (var message in Model)
-        {
-            <div class="message @(message.SenderId == senderId ? "sent" : "received")">
-                <div class="message-sender">@(message.SenderId == senderId ? senderUsername : (receiverUsername ?? "دعم الإدارة"))</div>
-                <div>@message.Content</div>
-                <div class="message-time">@message.Timestamp.ToString("hh:mm tt")</div>
+<style>
+    .cs-page-bg { min-height: 100vh; padding: 0.5rem; background: linear-gradient(160deg, #eafaf6 0%, #eef2f7 55%, #f6f3ff 100%); }
+    .cs-wrap { max-width: 760px; margin: 0 auto; }
+    .cs-header-badge { display:inline-flex; align-items:center; gap:6px; background:rgba(255,255,255,.18); padding:3px 10px; border-radius:20px; font-size:.72rem; font-weight:600; }
+    .cs-dot { width:.5rem; height:.5rem; border-radius:999px; background:#4ade80; box-shadow:0 0 0 3px rgba(74,222,128,.25); animation: cs-pulse 1.8s infinite; }
+    @@keyframes cs-pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+    .wa-row { animation: cs-msg-in .28s ease; }
+    @@keyframes cs-msg-in { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }
+    .cs-empty { text-align:center; margin:auto; color:#8a97a0; padding:2rem; }
+    .cs-empty i { font-size:2.4rem; color:#0b8f77; opacity:.55; margin-bottom:.5rem; display:block; }
+</style>
+
+<div class="cs-page-bg">
+    <div class="cs-wrap">
+        <div class="wa-wrap wa-chat-page">
+            <div class="wa-header">
+                @if (!isGuestChat)
+                {
+                    <a href="@Url.Action("AdminCustomerSupportChats", "Chat")" class="wa-back" title="العودة لقائمة الدردشات">
+                        <i class="fas fa-arrow-right"></i>
+                    </a>
+                }
+                else
+                {
+                    <div class="wa-icon-btn" style="pointer-events:none">
+                        <i class="fas fa-headset"></i>
+                    </div>
+                }
+                <div class="wa-av">@initials</div>
+                <div class="wa-header-info">
+                    <div class="wa-header-name">@receiverUsername</div>
+                    <div class="wa-header-sub cs-header-badge"><span class="cs-dot"></span> متصل الآن</div>
+                </div>
             </div>
-        }
+
+            <div class="wa-body" id="chatBox">
+                @if (!Model.Any())
+                {
+                    <div class="cs-empty">
+                        <i class="fas fa-comments"></i>
+                        <div>لا توجد رسائل بعد — ابدأ المحادثة الآن</div>
+                    </div>
+                }
+                @foreach (var message in Model)
+                {
+                    bool isSent = message.SenderId == senderId;
+                    <div class="wa-row @(isSent ? "sent" : "received")" data-timestamp="@message.Timestamp.Ticks">
+                        <div class="wa-bubble">
+                            <div class="wa-sender-nm">@(isSent ? senderUsername : receiverUsername)</div>
+                            <p class="wa-text">@message.Content</p>
+                            <div class="wa-meta">
+                                <span class="wa-time">@message.Timestamp.ToString("hh:mm tt")</span>
+                            </div>
+                        </div>
+                    </div>
+                }
+            </div>
+
+            <div class="wa-status" id="status"></div>
+
+            <div class="wa-input-bar">
+                <div class="wa-input-wrap">
+                    <textarea id="messageInput" class="wa-input" rows="1" placeholder="اكتب رسالتك هنا..."></textarea>
+                </div>
+                <button type="button" id="sendButton" class="wa-send-btn" title="إرسال" onclick="sendPrivateMessage()">
+                    <i class="fas fa-paper-plane"></i>
+                </button>
+            </div>
+        </div>
     </div>
-    <div class="chat-input">
-        <input type="text" id="messageInput" placeholder="اكتب رسالة..." />
-        <button onclick="sendPrivateMessage()">إرسال</button>
-    </div>
-    <div id="status"></div>
 </div>
-
-
 
 @section Scripts {
     <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.0/signalr.min.js"></script>
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script>
         const connection = new signalR.HubConnectionBuilder()
-            .withUrl("/chatHub?guestId=@senderId", { transport: signalR.HttpTransportType.LongPolling }) // استخدام Long Polling
-            .withAutomaticReconnect([0, 2000, 10000, 30000]) // فترات إعادة الاتصال
+            .withUrl("/chatHub?guestId=@senderId", { transport: signalR.HttpTransportType.LongPolling })
+            .withAutomaticReconnect([0, 2000, 10000, 30000])
             .build();
 
-        connection.onreconnecting((error) => {
-            console.warn("جاري إعادة الاتصال بـ SignalR:", error);
-            $("#status").text("جاري إعادة الاتصال بخادم الدردشة...");
-        });
+        const chatBox = document.getElementById('chatBox');
+        const messageInput = document.getElementById('messageInput');
 
-        connection.onreconnected((connectionId) => {
-            console.log("تم إعادة الاتصال بـ SignalR مع connectionId:", connectionId);
-            $("#status").text("تم إعادة الاتصال بخادم الدردشة");
-        });
+        function scrollToBottom() {
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
 
-        connection.onclose((error) => {
-            console.error("تم إغلاق اتصال SignalR:", error);
-            $("#status").text("تم إغلاق الاتصال: " + (error ? error.message : "غير معروف"));
-        });
+        function removeEmptyState() {
+            const empty = chatBox.querySelector('.cs-empty');
+            if (empty) empty.remove();
+        }
+
+        function buildBubble(senderName, content, timeText, isSent) {
+            const row = document.createElement('div');
+            row.className = `wa-row ${isSent ? 'sent' : 'received'}`;
+
+            const mediaMatch = (content || '').match(/^\[media:(image|video|audio):(.+)\]$/i);
+            let contentHtml = '';
+            if (mediaMatch) {
+                const type = mediaMatch[1].toLowerCase();
+                const url = mediaMatch[2];
+                if (type === 'image') contentHtml = `<img class="wa-media-img" src="${url}" alt="image" />`;
+                else if (type === 'video') contentHtml = `<video class="wa-media-video" controls src="${url}"></video>`;
+                else if (type === 'audio') contentHtml = `<div class="wa-media-audio-wrap"><i class="fas fa-microphone wa-audio-ic"></i><audio controls src="${url}"></audio></div>`;
+            } else {
+                contentHtml = `<p class="wa-text"></p>`;
+            }
+
+            row.innerHTML = `
+                <div class="wa-bubble">
+                    <div class="wa-sender-nm"></div>
+                    ${contentHtml}
+                    <div class="wa-meta"><span class="wa-time">${timeText}</span></div>
+                </div>`;
+            row.querySelector('.wa-sender-nm').textContent = senderName;
+            if (!mediaMatch) row.querySelector('.wa-text').textContent = content || '';
+            return row;
+        }
+
+        connection.onreconnecting(() => { $("#status").text("جاري إعادة الاتصال بخادم الدردشة..."); });
+        connection.onreconnected(() => { $("#status").text(""); });
+        connection.onclose((error) => { $("#status").text("تم إغلاق الاتصال: " + (error ? error.message : "غير معروف")); });
 
         connection.on("ReceivePrivateMessage", function () {
             const args = Array.from(arguments);
-            let incomingSenderId = null, incomingSender = null, payload = null, timestamp = null, messageId = null, isRead = false;
+            let incomingSenderId = null, incomingSender = null, payload = null, timestamp = null;
             if (args.length === 3) {
                 incomingSender = args[0];
                 payload = args[1];
@@ -67,57 +145,42 @@
                 incomingSender = args[1];
                 payload = args[2];
                 timestamp = args[3];
-                messageId = args[4];
-                isRead = !!args[5];
             }
-            console.log('Received private message', { incomingSenderId, incomingSender, payload, timestamp, messageId });
-            const chatBox = document.getElementById('chatBox');
+
             const isSent = incomingSenderId ? incomingSenderId === '@senderId' : incomingSender === '@senderUsername';
-            const msg = document.createElement('div');
-            msg.className = `message ${isSent ? 'sent' : 'received'}`;
-
-            // parse payload for media
-            const mediaMatch = (payload || '').match(/^\[media:(image|video|audio):(.+)\]$/i);
-            let contentHtml = '';
-            if (mediaMatch) {
-                const type = mediaMatch[1].toLowerCase();
-                const url = mediaMatch[2];
-                if (type === 'image') contentHtml = `<img src="${url}" alt="image" />`;
-                else if (type === 'video') contentHtml = `<video controls src="${url}"></video>`;
-                else if (type === 'audio') contentHtml = `<div class="wa-media-audio-wrap"><i class="fas fa-microphone wa-audio-ic"></i><audio controls src="${url}"></audio></div>`;
-            } else {
-                contentHtml = `<div>${payload || ''}</div>`;
-            }
-
-            msg.innerHTML = `<div class="message-sender">${incomingSender}</div>${contentHtml}<div class="message-time">${new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>`;
-            chatBox.appendChild(msg);
-            chatBox.scrollTop = chatBox.scrollHeight;
+            const timeText = new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            removeEmptyState();
+            chatBox.appendChild(buildBubble(incomingSender, payload, timeText, isSent));
+            scrollToBottom();
         });
 
         connection.on("ReceiveNotification", (sender, message) => {
-            console.log(`إشعار: ${sender}: ${message}`);
             $("#status").text(`إشعار من ${sender}: ${message}`);
         });
 
         connection.on("ReceiveError", (errorMessage) => {
-            console.error(`خطأ من الخادم: ${errorMessage}`);
             $("#status").text(errorMessage);
         });
 
-        document.addEventListener("DOMContentLoaded", () => {
-            const chatBox = document.getElementById("chatBox");
-            chatBox.scrollTop = chatBox.scrollHeight;
+        messageInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendPrivateMessage();
+            }
+        });
+        messageInput.addEventListener('input', () => {
+            messageInput.style.height = 'auto';
+            messageInput.style.height = Math.min(messageInput.scrollHeight, 120) + 'px';
         });
 
-        connection.start()
-            .then(() => console.log("تم الاتصال بـ SignalR"))
-            .catch(err => {
-                console.error("خطأ في الاتصال بـ SignalR:", err);
-                $("#status").text("فشل الاتصال بخادم الدردشة");
-            });
+        document.addEventListener("DOMContentLoaded", scrollToBottom);
+
+        connection.start().catch(err => {
+            $("#status").text("فشل الاتصال بخادم الدردشة");
+        });
 
         function sendPrivateMessage() {
-            const message = $("#messageInput").val();
+            const message = messageInput.value.trim();
             if (!message) {
                 $("#status").text("الرسالة لا يمكن أن تكون فارغة");
                 return;
@@ -129,24 +192,18 @@
                 data: { receiverId: '@receiverId', content: message },
                 success: function (response) {
                     if (response.success) {
-                        $("#messageInput").val("");
+                        messageInput.value = "";
+                        messageInput.style.height = 'auto';
                         $("#status").text("");
-                        const chatBox = document.getElementById("chatBox");
-                        const msg = document.createElement("div");
-                        msg.className = "message sent";
-                        msg.innerHTML = `
-                            <div class="message-sender">@senderUsername</div>
-                            <div>${message}</div>
-                            <div class="message-time">${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
-                        `;
-                        chatBox.appendChild(msg);
-                        chatBox.scrollTop = chatBox.scrollHeight;
+                        const timeText = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                        removeEmptyState();
+                        chatBox.appendChild(buildBubble('@senderUsername', message, timeText, true));
+                        scrollToBottom();
                     } else {
                         $("#status").text(response.message);
                     }
                 },
                 error: function () {
-                    console.error("خطأ AJAX: فشل إرسال الرسالة");
                     $("#status").text("خطأ في إرسال الرسالة");
                 }
             });

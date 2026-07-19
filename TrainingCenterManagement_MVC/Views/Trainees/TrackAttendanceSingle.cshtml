@@ -1,17 +1,145 @@
-﻿@model TrainingCenterManagement_MVC.ViewModels.TraineeAttendanceViewModel
+@model TrainingCenterManagement_MVC.ViewModels.TraineeAttendanceViewModel
 @{
-    ViewData["Title"] = "Attendance";
+    ViewData["Title"] = "تفاصيل الحضور";
+    bool isLow = Model.IsLowAttendance;
+    string mainColor = isLow ? "#ef4444" : "#10b981";
 }
 
-<h2 class="mb-4">Attendance in @Model.CourseName</h2>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
 
-<div class="card p-4 shadow-sm" style="max-width: 400px;">
-    <p><strong>Total Lectures:</strong> @Model.TotalLectures</p>
-    <p><strong>Attended Lectures:</strong> @Model.AttendedLectures</p>
-    <p>
-        <strong>Attendance Percentage:</strong>
-        <span class="fw-bold @(Model.AttendancePercentage < 75 ? "text-danger" : "text-success")">
-            @Model.AttendancePercentage.ToString("F2") %
-        </span>
-    </p>
+<style>
+    :root {
+        --tas-primary:#0d9488; --tas-success:#10b981; --tas-danger:#ef4444;
+        --tas-body:#f1f5f9; --tas-card:#fff; --tas-t1:#0f172a; --tas-t2:#475569; --tas-t3:#94a3b8;
+        --tas-border:#e2e8f0; --tas-radius:16px; --tas-shadow:0 4px 24px rgba(0,0,0,.08);
+    }
+    .tas-page { background:var(--tas-body); direction:rtl; font-family:'Segoe UI',sans-serif; padding:28px 32px; min-height:100vh; }
+    .tas-back { display:inline-flex; align-items:center; gap:6px; color:var(--tas-primary); text-decoration:none; font-size:.86rem; font-weight:600; margin-bottom:18px; }
+    .tas-back:hover { text-decoration:underline; }
+
+    .tas-shell { display:flex; gap:22px; flex-wrap:wrap; }
+    .tas-ring-card, .tas-stats-card { background:var(--tas-card); border-radius:var(--tas-radius); border:1px solid var(--tas-border); box-shadow:var(--tas-shadow); padding:26px; }
+    .tas-ring-card { flex:0 0 260px; text-align:center; }
+    .tas-ring-card h2 { font-size:1.05rem; font-weight:700; color:var(--tas-t1); margin:0 0 18px; }
+    .tas-ring-wrap { position:relative; width:180px; height:180px; margin:0 auto 14px; }
+    .tas-ring-val { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; }
+    .tas-ring-val .num { font-size:2rem; font-weight:800; color:var(--tas-t1); }
+    .tas-ring-val .lbl { font-size:.75rem; color:var(--tas-t3); }
+    .tas-badge { display:inline-flex; align-items:center; gap:6px; padding:6px 16px; border-radius:20px; font-size:.82rem; font-weight:700; }
+    .tas-badge-ok { background:#d1fae5; color:#065f46; }
+    .tas-badge-low { background:#fee2e2; color:#991b1b; }
+
+    .tas-stats-card { flex:1; min-width:280px; }
+    .tas-stats-card h2 { font-size:1.05rem; font-weight:700; color:var(--tas-t1); margin:0 0 18px; display:flex; align-items:center; gap:8px; }
+    .tas-stats-card h2 i { color:var(--tas-primary); }
+    .tas-stat-row { display:flex; align-items:center; justify-content:space-between; padding:14px 0; border-bottom:1px solid #f1f5f9; }
+    .tas-stat-row:last-child { border-bottom:none; }
+    .tas-stat-label { display:flex; align-items:center; gap:10px; color:var(--tas-t2); font-size:.9rem; }
+    .tas-stat-label i { width:32px; height:32px; border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:.85rem; }
+    .tas-stat-val { font-weight:800; font-size:1.1rem; color:var(--tas-t1); }
+
+    .tas-alert { margin-top:18px; border-radius:10px; padding:12px 16px; font-size:.85rem; display:flex; gap:8px; align-items:flex-start; }
+    .tas-alert-warn { background:#fef3c7; border:1px solid #fcd34d; color:#78350f; }
+    .tas-alert-ok { background:#f0fdf4; border:1px solid #86efac; color:#166534; }
+
+    @@media (max-width:600px) {
+        .tas-page { padding:18px 14px; }
+        .tas-shell { flex-direction:column; }
+        .tas-ring-card { flex:1; }
+    }
+</style>
+
+<div class="dashboard-wrapper">
+@await Html.PartialAsync("_TraineeSidebar")
+<main class="dashboard-main tas-page">
+
+    <a asp-action="TrackAttendance" class="tas-back">
+        <i class="fas fa-arrow-right"></i> العودة لسجل الحضور
+    </a>
+
+    <div class="tas-shell">
+        <div class="tas-ring-card">
+            <h2>@Model.CourseName</h2>
+            <div class="tas-ring-wrap">
+                <canvas id="tasRing"></canvas>
+                <div class="tas-ring-val">
+                    <span class="num">@Model.AttendancePercentage.ToString("F0")%</span>
+                    <span class="lbl">نسبة الحضور</span>
+                </div>
+            </div>
+            @if (isLow)
+            {
+                <span class="tas-badge tas-badge-low"><i class="fas fa-exclamation-triangle"></i> حضور منخفض</span>
+            }
+            else
+            {
+                <span class="tas-badge tas-badge-ok"><i class="fas fa-check-circle"></i> حضور جيد</span>
+            }
+        </div>
+
+        <div class="tas-stats-card">
+            <h2><i class="fas fa-list-ul"></i> تفاصيل الحضور</h2>
+
+            <div class="tas-stat-row">
+                <div class="tas-stat-label">
+                    <i class="fas fa-book-open" style="background:#eef2ff;color:#4f46e5"></i>
+                    إجمالي عدد المحاضرات
+                </div>
+                <div class="tas-stat-val">@Model.TotalLectures</div>
+            </div>
+            <div class="tas-stat-row">
+                <div class="tas-stat-label">
+                    <i class="fas fa-check" style="background:#d1fae5;color:#059669"></i>
+                    عدد مرات الحضور
+                </div>
+                <div class="tas-stat-val" style="color:var(--tas-success)">@Model.AttendedLectures</div>
+            </div>
+            <div class="tas-stat-row">
+                <div class="tas-stat-label">
+                    <i class="fas fa-times" style="background:#fee2e2;color:#dc2626"></i>
+                    عدد مرات الغياب
+                </div>
+                <div class="tas-stat-val" style="color:var(--tas-danger)">@(Model.TotalLectures - Model.AttendedLectures)</div>
+            </div>
+
+            @if (isLow)
+            {
+                <div class="tas-alert tas-alert-warn">
+                    <i class="fas fa-exclamation-triangle" style="margin-top:2px;"></i>
+                    <span>نسبة حضورك في هذه الدورة أقل من الحد المطلوب (75%). يرجى الانتباه لحضور المحاضرات القادمة لتجنب أي تأثير على أهليتك للامتحان أو الشهادة.</span>
+                </div>
+            }
+            else
+            {
+                <div class="tas-alert tas-alert-ok">
+                    <i class="fas fa-check-circle" style="margin-top:2px;"></i>
+                    <span>نسبة حضورك ممتازة في هذه الدورة، استمر بهذا المستوى.</span>
+                </div>
+            }
+        </div>
+    </div>
+
+</main>
 </div>
+
+@section Scripts {
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+        new Chart(document.getElementById('tasRing').getContext('2d'), {
+            type: 'doughnut',
+            data: {
+                datasets: [{
+                    data: [@Model.AttendancePercentage.ToString("F1"), @((100 - Model.AttendancePercentage).ToString("F1"))],
+                    backgroundColor: ['@mainColor', '#eef2f5'],
+                    borderWidth: 0
+                }]
+            },
+            options: {
+                cutout: '76%',
+                responsive: true,
+                maintainAspectRatio: true,
+                plugins: { legend: { display: false }, tooltip: { enabled: false } }
+            }
+        });
+    </script>
+}

@@ -94,7 +94,8 @@ namespace TrainingCenterManagement_MVC.ViewModels
 
     public class EmployeeSalaryRow
     {
-        public Guid SalaryId { get; set; }
+        public Guid? SalaryId { get; set; }
+        public bool HasSalary { get; set; }
         public string UserId { get; set; } = string.Empty;
         public string Name { get; set; } = string.Empty;
         public string Email { get; set; } = string.Empty;

@@ -302,12 +302,20 @@ namespace TrainingCenterManagement_MVC.Controllers
                 .Where(ct => ct.TraineeId == trainee.TraineeId)
                 .Select(ct => new TraineeAttendanceViewModel
                 {
+                    CourseId = ct.CourseId,
                     CourseName = ct.Course.CourseName,
                     TotalLectures = ct.Course.NumberOfLectures,
                     AttendedLectures = ct.Course.Lectures
                         .Count(l => l.Presences.Any(p => p.TraineeId == trainee.TraineeId && p.IsPresent))
                 })
                 .ToListAsync();
+
+            foreach (var item in attendanceData)
+            {
+                item.AttendancePercentage = item.TotalLectures > 0
+                    ? item.AttendedLectures * 100.0 / item.TotalLectures
+                    : 0;
+            }
 
             return View(attendanceData);
         }
@@ -328,10 +336,14 @@ namespace TrainingCenterManagement_MVC.Controllers
 
             var viewModel = new TraineeAttendanceViewModel
             {
+                CourseId = course.CourseId,
                 CourseName = course.CourseName,
                 TotalLectures = course.NumberOfLectures,
                 AttendedLectures = course.Lectures.Count(l => l.Presences.Any(p => p.TraineeId == trainee.TraineeId && p.IsPresent))
             };
+            viewModel.AttendancePercentage = viewModel.TotalLectures > 0
+                ? viewModel.AttendedLectures * 100.0 / viewModel.TotalLectures
+                : 0;
 
             return View("TrackAttendanceSingle", viewModel); // View مخصصة لدورة واحدة
         }

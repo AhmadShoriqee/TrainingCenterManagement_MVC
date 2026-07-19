@@ -1,33 +1,195 @@
-﻿@model List<TrainingCenterManagement_MVC.ViewModels.TraineeAttendanceViewModel>
-
+@model List<TrainingCenterManagement_MVC.ViewModels.TraineeAttendanceViewModel>
 @{
-    ViewData["Title"] = "Track Attendance";
+    ViewData["Title"] = "سجل الحضور";
+    double overallPercentage = Model.Any() ? Model.Average(m => m.AttendancePercentage) : 0;
 }
 
-<h2 class="mb-4">My Attendance</h2>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
 
-<table class="table table-bordered table-striped table-hover align-middle">
-    <thead class="table-dark">
-        <tr>
-            <th>Course</th>
-            <th>Attended</th>
-            <th>Total</th>
-            <th>Attendance %</th>
-            <th>Status</th>
-        </tr>
-    </thead>
-    <tbody>
-        @foreach (var item in Model)
+<style>
+    :root {
+        --ta-primary:#0d9488; --ta-primary-light:#14b8a6; --ta-primary-pale:#f0fdfa;
+        --ta-success:#10b981; --ta-danger:#ef4444; --ta-warning:#f59e0b;
+        --ta-body:#f1f5f9; --ta-card:#fff; --ta-t1:#0f172a; --ta-t2:#475569; --ta-t3:#94a3b8;
+        --ta-border:#e2e8f0; --ta-radius:16px; --ta-shadow:0 4px 24px rgba(0,0,0,.08);
+    }
+    .ta-page { background:var(--ta-body); direction:rtl; font-family:'Segoe UI',sans-serif; padding:28px 32px; min-height:100vh; }
+
+    .ta-header { background:linear-gradient(135deg,#0f766e,#0d9488,#14b8a6); border-radius:var(--ta-radius); padding:26px 30px; color:#fff; margin-bottom:24px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:16px; }
+    .ta-header h1 { margin:0 0 4px; font-size:1.4rem; font-weight:800; display:flex; align-items:center; gap:10px; }
+    .ta-header p { margin:0; font-size:.85rem; opacity:.88; }
+    .ta-overall-badge { background:rgba(255,255,255,.16); border-radius:14px; padding:12px 22px; text-align:center; }
+    .ta-overall-badge .num { font-size:1.9rem; font-weight:800; }
+    .ta-overall-badge .lbl { font-size:.74rem; opacity:.85; }
+
+    .ta-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:18px; margin-bottom:26px; }
+    .ta-card { background:var(--ta-card); border-radius:var(--ta-radius); border:1px solid var(--ta-border); box-shadow:var(--ta-shadow); padding:20px 22px; display:flex; flex-direction:column; gap:12px; transition:transform .2s ease; }
+    .ta-card:hover { transform:translateY(-3px); }
+    .ta-card-top { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+    .ta-course-name { font-weight:700; color:var(--ta-t1); font-size:.98rem; }
+    .ta-status-chip { padding:3px 11px; border-radius:20px; font-size:.72rem; font-weight:700; display:inline-flex; align-items:center; gap:4px; white-space:nowrap; }
+    .ta-status-ok   { background:#d1fae5; color:#065f46; }
+    .ta-status-low  { background:#fee2e2; color:#991b1b; }
+
+    .ta-ring-row { display:flex; align-items:center; gap:16px; }
+    .ta-ring { position:relative; width:74px; height:74px; flex-shrink:0; }
+    .ta-ring canvas { width:100% !important; height:100% !important; }
+    .ta-ring-val { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:.86rem; font-weight:800; color:var(--ta-t1); }
+    .ta-mini-stats { flex:1; display:flex; flex-direction:column; gap:4px; font-size:.82rem; color:var(--ta-t2); }
+    .ta-mini-stats b { color:var(--ta-t1); }
+
+    .ta-progress-track { height:8px; border-radius:999px; background:#eef2f5; overflow:hidden; }
+    .ta-progress-fill { height:100%; border-radius:999px; transition:width .4s ease; }
+
+    .ta-card-actions { margin-top:auto; }
+    .ta-detail-link { display:inline-flex; align-items:center; gap:6px; color:var(--ta-primary); font-size:.82rem; font-weight:600; text-decoration:none; }
+    .ta-detail-link:hover { text-decoration:underline; }
+
+    .ta-chart-card { background:var(--ta-card); border-radius:var(--ta-radius); border:1px solid var(--ta-border); box-shadow:var(--ta-shadow); padding:22px 26px; }
+    .ta-chart-card h3 { margin:0 0 16px; font-size:1rem; font-weight:700; color:var(--ta-t1); display:flex; align-items:center; gap:8px; }
+    .ta-chart-card h3 i { color:var(--ta-primary); }
+
+    .ta-empty { text-align:center; padding:60px 20px; color:var(--ta-t3); }
+    .ta-empty i { font-size:2.6rem; margin-bottom:12px; display:block; }
+
+    @@media (max-width:600px) {
+        .ta-page { padding:18px 14px; }
+        .ta-grid { grid-template-columns:1fr; }
+    }
+</style>
+
+<div class="dashboard-wrapper">
+@await Html.PartialAsync("_TraineeSidebar")
+<main class="dashboard-main ta-page">
+
+    <div class="ta-header">
+        <div>
+            <h1><i class="fas fa-calendar-check"></i> سجل الحضور</h1>
+            <p>متابعة نسبة حضورك في جميع الدورات المسجّل بها</p>
+        </div>
+        <div class="ta-overall-badge">
+            <div class="num">@overallPercentage.ToString("F0")%</div>
+            <div class="lbl">المعدل العام للحضور</div>
+        </div>
+    </div>
+
+    @if (!Model.Any())
+    {
+        <div class="ta-chart-card">
+            <div class="ta-empty">
+                <i class="fas fa-calendar-times"></i>
+                <p>لا توجد دورات مسجّلة بعد لعرض سجل الحضور</p>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="ta-grid">
+            @foreach (var item in Model)
+            {
+                string barColor = item.IsLowAttendance ? "var(--ta-danger)" : "var(--ta-success)";
+                <div class="ta-card">
+                    <div class="ta-card-top">
+                        <div class="ta-course-name">@item.CourseName</div>
+                        @if (item.IsLowAttendance)
+                        {
+                            <span class="ta-status-chip ta-status-low"><i class="fas fa-exclamation-triangle"></i> حضور منخفض</span>
+                        }
+                        else
+                        {
+                            <span class="ta-status-chip ta-status-ok"><i class="fas fa-check-circle"></i> جيد</span>
+                        }
+                    </div>
+
+                    <div class="ta-ring-row">
+                        <div class="ta-ring">
+                            <canvas class="ta-ring-canvas" data-pct="@item.AttendancePercentage.ToString("F1")" data-color="@(item.IsLowAttendance ? "#ef4444" : "#10b981")"></canvas>
+                            <div class="ta-ring-val">@item.AttendancePercentage.ToString("F0")%</div>
+                        </div>
+                        <div class="ta-mini-stats">
+                            <div>عدد المحاضرات: <b>@item.TotalLectures</b></div>
+                            <div>الحضور: <b style="color:var(--ta-success)">@item.AttendedLectures</b></div>
+                            <div>الغياب: <b style="color:var(--ta-danger)">@(item.TotalLectures - item.AttendedLectures)</b></div>
+                        </div>
+                    </div>
+
+                    <div class="ta-progress-track">
+                        <div class="ta-progress-fill" style="width:@(item.AttendancePercentage.ToString("F1"))%;background:@barColor"></div>
+                    </div>
+
+                    <div class="ta-card-actions">
+                        <a class="ta-detail-link" asp-action="TrackAttendance" asp-route-courseId="@item.CourseId">
+                            عرض التفاصيل <i class="fas fa-arrow-left"></i>
+                        </a>
+                    </div>
+                </div>
+            }
+        </div>
+
+        <div class="ta-chart-card">
+            <h3><i class="fas fa-chart-bar"></i> مقارنة نسبة الحضور بين الدورات</h3>
+            <canvas id="taOverviewChart" height="90"></canvas>
+        </div>
+    }
+
+</main>
+</div>
+
+@section Scripts {
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+        document.querySelectorAll('.ta-ring-canvas').forEach(function (canvas) {
+            var pct = parseFloat(canvas.dataset.pct) || 0;
+            var color = canvas.dataset.color;
+            new Chart(canvas.getContext('2d'), {
+                type: 'doughnut',
+                data: {
+                    datasets: [{
+                        data: [pct, 100 - pct],
+                        backgroundColor: [color, '#eef2f5'],
+                        borderWidth: 0
+                    }]
+                },
+                options: {
+                    cutout: '72%',
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    plugins: { legend: { display: false }, tooltip: { enabled: false } }
+                }
+            });
+        });
+
+        @if (Model.Any())
         {
-            var alertClass = item.IsLowAttendance ? "text-danger fw-bold" : "text-success fw-semibold";
-            var statusText = item.IsLowAttendance ? "Low Attendance" : "OK";
-            <tr>
-                <td>@item.CourseName</td>
-                <td>@item.AttendedLectures</td>
-                <td>@item.TotalLectures</td>
-                <td>@item.AttendancePercentage.ToString("F2")%</td>
-                <td class="@alertClass">@statusText</td>
-            </tr>
+            <text>
+            const taLabels = @Html.Raw(Json.Serialize(Model.Select(m => m.CourseName)));
+            const taData = @Html.Raw(Json.Serialize(Model.Select(m => Math.Round(m.AttendancePercentage, 1))));
+            const taColors = taData.map(p => p >= 75 ? '#10b981' : '#ef4444');
+
+            new Chart(document.getElementById('taOverviewChart').getContext('2d'), {
+                type: 'bar',
+                data: {
+                    labels: taLabels,
+                    datasets: [{
+                        label: 'نسبة الحضور %',
+                        data: taData,
+                        backgroundColor: taColors,
+                        borderRadius: 6,
+                        maxBarThickness: 46
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: { callbacks: { label: (ctx) => ctx.parsed.y + '%' } }
+                    },
+                    scales: {
+                        y: { beginAtZero: true, max: 100, ticks: { callback: (v) => v + '%' } }
+                    }
+                }
+            });
+            </text>
         }
-    </tbody>
-</table>
+    </script>
+}

@@ -46,6 +46,26 @@
     .ref-submit:hover { opacity:.88; }
 
     .ref-error { background:#fee2e2; border:1px solid #fca5a5; border-radius:10px; padding:14px 18px; font-size:.88rem; color:#7f1d1d; margin-bottom:20px; }
+
+    .ref-policy-toggle { display:flex; align-items:center; justify-content:space-between; cursor:pointer; user-select:none; }
+    .ref-policy-toggle i.chev { transition:transform .2s ease; color:var(--t3); }
+    .ref-policy-toggle.open i.chev { transform:rotate(180deg); }
+    .ref-policy-body { max-height:0; overflow:hidden; transition:max-height .3s ease; }
+    .ref-policy-body.open { max-height:1200px; margin-top:18px; }
+    .ref-policy-period { display:flex; align-items:center; gap:14px; background:#f0fdfa; border:1.5px solid #99f6e4; border-radius:12px; padding:14px 18px; margin-bottom:18px; }
+    .ref-policy-period .num { font-size:1.7rem; font-weight:800; color:var(--teal); }
+    .ref-policy-period .lbl { font-size:.82rem; color:var(--t2); }
+    .ref-policy-list, .ref-policy-steps { list-style:none; margin:0 0 18px; padding:0; display:flex; flex-direction:column; gap:10px; }
+    .ref-policy-list li { display:flex; gap:8px; font-size:.85rem; color:var(--t2); line-height:1.6; }
+    .ref-policy-list li i { color:var(--success); margin-top:3px; flex-shrink:0; }
+    .ref-policy-steps { counter-reset:ref-step; }
+    .ref-policy-steps li { display:flex; gap:12px; font-size:.85rem; color:var(--t2); line-height:1.6; }
+    .ref-policy-steps li::before {
+        counter-increment: ref-step; content: counter(ref-step);
+        width:24px; height:24px; border-radius:50%; background:var(--teal); color:#fff;
+        display:flex; align-items:center; justify-content:center; font-weight:700; font-size:.78rem; flex-shrink:0;
+    }
+    .ref-policy-subtitle { font-size:.82rem; font-weight:700; color:var(--t1); margin:0 0 10px; }
 </style>
 
 <div class="ref-page">
@@ -65,6 +85,36 @@
             <div>
                 <h1>استرداد الأموال</h1>
                 <p>يمكنك استرداد رصيدك الحالي (غير المستخدم في دورات) عبر شام كاش</p>
+            </div>
+        </div>
+
+        <!-- سياسة الاسترجاع -->
+        <div class="ref-card">
+            <div class="ref-policy-toggle" id="refPolicyToggle">
+                <div class="ref-section-title" style="margin-bottom:0"><i class="fas fa-file-contract"></i> سياسة رد الأموال والشروط والأحكام</div>
+                <i class="fas fa-chevron-down chev"></i>
+            </div>
+            <div class="ref-policy-body" id="refPolicyBody">
+                <div class="ref-policy-period">
+                    <div class="num">14</div>
+                    <div class="lbl">يوماً من تاريخ آخر عملية دفع، يحق لك خلالها تقديم طلب استرداد للرصيد غير المستخدم.</div>
+                </div>
+
+                <div class="ref-policy-subtitle">الشروط والأحكام</div>
+                <ul class="ref-policy-list">
+                    <li><i class="fas fa-check-circle"></i> يُسمح باسترداد الرصيد غير المستخدم فقط — أي مبلغ لم يُصرف بعد على دورة فعلية.</li>
+                    <li><i class="fas fa-check-circle"></i> يمكن طلب استرداد الدولار والليرة السورية معاً أو كل عملة على حدة، دون تحويل بين العملتين.</li>
+                    <li><i class="fas fa-check-circle"></i> يجب إرفاق صورة واضحة لباركود حساب "شام كاش" الخاص بك لاستلام المبلغ.</li>
+                    <li><i class="fas fa-check-circle"></i> تتم مراجعة الطلب من قبل الإدارة، وقد تتم الموافقة الكاملة أو الجزئية على المبلغ المطلوب.</li>
+                </ul>
+
+                <div class="ref-policy-subtitle">خطوات تقديم الطلب</div>
+                <ol class="ref-policy-steps">
+                    <li>أدخل المبلغ المطلوب استرداده بالدولار و/أو الليرة ضمن حدود رصيدك الحالي.</li>
+                    <li>ارفع صورة باركود حساب "شام كاش" الخاص بك.</li>
+                    <li>قدّم الطلب وانتظر مراجعته من قبل الإدارة أو موظف الاستقبال.</li>
+                    <li>ستصلك رسالة بحالة الطلب (موافقة كاملة/جزئية) وتحويل المبلغ المعتمد.</li>
+                </ol>
             </div>
         </div>
 
@@ -125,3 +175,10 @@
 
     </div>
 </div>
+
+<script>
+    document.getElementById('refPolicyToggle').addEventListener('click', function () {
+        this.classList.toggle('open');
+        document.getElementById('refPolicyBody').classList.toggle('open');
+    });
+</script>

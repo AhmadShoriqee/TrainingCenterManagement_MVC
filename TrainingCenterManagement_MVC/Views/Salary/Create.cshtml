@@ -39,7 +39,7 @@
                 <option value="">-- اختر موظفاً --</option>
                 @foreach (var emp in (IEnumerable<dynamic>)ViewBag.Employees)
                 {
-                    <option value="@emp.Value">@emp.Text</option>
+                    <option value="@emp.Value" selected="@(emp.Value == Model.UserId)">@emp.Text</option>
                 }
             </select>
         </div>

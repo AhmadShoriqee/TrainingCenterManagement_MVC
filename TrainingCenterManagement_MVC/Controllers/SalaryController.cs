@@ -24,49 +24,60 @@ namespace TrainingCenterManagement_MVC.Controllers
         {
             var now = DateTime.UtcNow;
 
+            // Every employee (Manager/Admin + Trainer + Receptionist), whether or not
+            // a payroll record has been created for them yet.
+            var employees = await _context.Users
+                .Where(u => u.Role == RoleType.Admin
+                         || u.Role == RoleType.Trainer
+                         || u.Role == RoleType.Receptionist)
+                .ToListAsync();
+
             var salaries = await _context.EmployeeSalaries
-                .Include(es => es.User)
                 .Include(es => es.Payments)
                 .Where(es => es.IsActive)
                 .ToListAsync();
+            var salaryByUserId = salaries.ToDictionary(es => es.UserId);
+
+            var trainerSpecialties = await _context.Trainers
+                .Select(t => new { t.UserId, t.Specialty })
+                .ToDictionaryAsync(t => t.UserId, t => t.Specialty);
 
             var rows = new List<EmployeeSalaryRow>();
-            foreach (var es in salaries)
+            foreach (var user in employees)
             {
-                var paidThisMonth = es.Payments
-                    .Any(p => p.Month == now.Month && p.Year == now.Year);
-                var lastPaid = es.Payments
-                    .OrderByDescending(p => p.PaidAt)
-                    .FirstOrDefault();
+                salaryByUserId.TryGetValue(user.Id, out var es);
 
-                // Trainer specialty
-                string specialty = string.Empty;
-                if (es.EmployeeRole == "Trainer")
+                bool paidThisMonth = false;
+                DateTime? lastPaidAt = null;
+                if (es != null)
                 {
-                    var trainer = await _context.Trainers.FirstOrDefaultAsync(t => t.UserId == es.UserId);
-                    specialty = trainer?.Specialty ?? string.Empty;
+                    paidThisMonth = es.Payments.Any(p => p.Month == now.Month && p.Year == now.Year);
+                    lastPaidAt = es.Payments.OrderByDescending(p => p.PaidAt).FirstOrDefault()?.PaidAt;
                 }
+
+                trainerSpecialties.TryGetValue(user.Id, out var specialty);
 
                 rows.Add(new EmployeeSalaryRow
                 {
-                    SalaryId      = es.SalaryId,
-                    UserId        = es.UserId,
-                    Name          = es.User?.FullName ?? "—",
-                    Email         = es.User?.Email ?? "—",
-                    ProfilePic    = es.User?.ProfilePictureUrl,
-                    Role          = es.EmployeeRole,
-                    Specialty     = specialty,
-                    MonthlySalary = es.MonthlySalary,
-                    CurrencyLabel = CurrencyHelper.GetSymbol(es.Currency),
-                    Currency      = es.Currency,
+                    SalaryId      = es?.SalaryId,
+                    HasSalary     = es != null,
+                    UserId        = user.Id,
+                    Name          = user.FullName ?? "—",
+                    Email         = user.Email ?? "—",
+                    ProfilePic    = user.ProfilePictureUrl,
+                    Role          = RoleToEmployeeRole(user.Role),
+                    Specialty     = user.Role == RoleType.Trainer ? (specialty ?? string.Empty) : string.Empty,
+                    MonthlySalary = es?.MonthlySalary ?? 0,
+                    CurrencyLabel = es != null ? CurrencyHelper.GetSymbol(es.Currency) : "ل.س",
+                    Currency      = es?.Currency ?? PaymentCurrency.SYP,
                     PaidThisMonth = paidThisMonth,
-                    LastPaidAt    = lastPaid?.PaidAt,
-                    Notes         = es.Notes,
-                    IsActive      = es.IsActive
+                    LastPaidAt    = lastPaidAt,
+                    Notes         = es?.Notes,
+                    IsActive      = es?.IsActive ?? false
                 });
             }
 
-            var totalPayroll = rows.Sum(r => r.MonthlySalary);
+            var totalPayroll = rows.Where(r => r.HasSalary).Sum(r => r.MonthlySalary);
             var paidSum      = salaries.Sum(es =>
                 es.Payments.Where(p => p.Month == now.Month && p.Year == now.Year)
                            .Sum(p => p.Amount));
@@ -136,10 +147,10 @@ namespace TrainingCenterManagement_MVC.Controllers
         }
 
         // GET: Salary/Create
-        public async Task<IActionResult> Create()
+        public async Task<IActionResult> Create(string? userId = null)
         {
             await PopulateEmployeesDropdownAsync();
-            return View(new CreateSalaryViewModel());
+            return View(new CreateSalaryViewModel { UserId = userId ?? string.Empty });
         }
 
         // POST: Salary/Create
@@ -165,12 +176,7 @@ namespace TrainingCenterManagement_MVC.Controllers
             var user = await _context.Users.FindAsync(model.UserId);
             if (user == null) return NotFound();
 
-            string role = user.Role switch
-            {
-                RoleType.Trainer     => "Trainer",
-                RoleType.Receptionist => "Receptionist",
-                _                    => "Other"
-            };
+            string role = RoleToEmployeeRole(user.Role);
 
             _context.EmployeeSalaries.Add(new EmployeeSalary
             {
@@ -245,7 +251,7 @@ namespace TrainingCenterManagement_MVC.Controllers
                 .ToListAsync();
 
             var employees = await _context.Users
-                .Where(u => (u.Role == RoleType.Trainer || u.Role == RoleType.Receptionist)
+                .Where(u => (u.Role == RoleType.Admin || u.Role == RoleType.Trainer || u.Role == RoleType.Receptionist)
                             && !existingUserIds.Contains(u.Id))
                 .Select(u => new { u.Id, u.FullName, u.Email, u.Role })
                 .ToListAsync();
@@ -253,9 +259,26 @@ namespace TrainingCenterManagement_MVC.Controllers
             ViewBag.Employees = employees.Select(e => new
             {
                 Value = e.Id,
-                Text  = $"{e.FullName} ({(e.Role == RoleType.Trainer ? "مدرب" : "موظف استقبال")}) — {e.Email}"
+                Text  = $"{e.FullName} ({RoleArabicLabel(e.Role)}) — {e.Email}"
             }).ToList();
         }
+
+        /// <summary>"Manager" (المدير) in the business spec maps to RoleType.Admin.</summary>
+        private static string RoleToEmployeeRole(RoleType role) => role switch
+        {
+            RoleType.Admin        => "Admin",
+            RoleType.Trainer      => "Trainer",
+            RoleType.Receptionist => "Receptionist",
+            _                     => "Other"
+        };
+
+        private static string RoleArabicLabel(RoleType role) => role switch
+        {
+            RoleType.Admin        => "مدير",
+            RoleType.Trainer      => "مدرب",
+            RoleType.Receptionist => "موظف استقبال",
+            _                     => "موظف"
+        };
 
         private static string GetMonthName(int m) => m switch
         {

@@ -22,6 +22,7 @@ namespace TrainingCenterManagement_MVC.Controllers
         }
 
         // GET: Certificates
+        [Authorize(Roles = "Admin,Trainer")]
         public async Task<IActionResult> Index()
         {
             var applicationDbContext = _context.Certificates
@@ -29,7 +30,10 @@ namespace TrainingCenterManagement_MVC.Controllers
                     .Include(c => c.Exam)
                     .Include(c => c.Trainee)
                         .ThenInclude(t => t.User) // لجلب بيانات المستخدم
-                    .Include(c => c.Trainer); return View(await applicationDbContext.ToListAsync());
+                    .Include(c => c.Trainer);
+
+            ViewBag.IsAdmin = User.IsInRole("Admin");
+            return View(await applicationDbContext.ToListAsync());
         }
 
         // GET: Certificates/Details/5
